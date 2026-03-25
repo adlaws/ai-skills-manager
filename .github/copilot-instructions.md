@@ -17,4 +17,6 @@
 - Install location settings are free-form strings, not enums. Paths starting with `~/` resolve to home directory.
 - Installed tree items use scope-specific `contextValue`: `installedResourceLocal` or `installedResourceGlobal`.
 - Resources can be moved between local and global scopes via `moveToGlobal` / `moveToLocal` commands.
+- All actions are available via both inline icon buttons and right-click context menus in both Marketplace and Installed trees.
+- The `viewDetails` command works for both marketplace and installed items; for installed items not in the marketplace it reads content from disk.
 - Repositories use `aiSkillsManager.repositories` (not `skillRepositories`) and have an `enabled` boolean flag for toggling.

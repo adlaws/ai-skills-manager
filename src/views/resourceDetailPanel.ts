@@ -8,8 +8,9 @@
 
 import * as vscode from 'vscode';
 import MarkdownIt from 'markdown-it';
-import { ResourceItem, ResourceCategory, CATEGORY_LABELS } from '../types';
+import { ResourceItem, ResourceCategory, CATEGORY_LABELS, InstalledResource } from '../types';
 import { InstalledTreeDataProvider } from './installedProvider';
+import { PathService } from '../services/pathService';
 
 export class ResourceDetailPanel {
     public static readonly viewType = 'aiSkillsManager.resourceDetail';
@@ -20,6 +21,7 @@ export class ResourceDetailPanel {
     private readonly _item: ResourceItem;
     private readonly _extensionUri: vscode.Uri;
     private readonly _installedProvider: InstalledTreeDataProvider;
+    private readonly _pathService: PathService;
     private _disposables: vscode.Disposable[] = [];
 
     // ── Constructor / factory ───────────────────────────────────
@@ -29,16 +31,28 @@ export class ResourceDetailPanel {
         item: ResourceItem,
         extensionUri: vscode.Uri,
         installedProvider: InstalledTreeDataProvider,
+        pathService: PathService,
     ) {
         this._panel = panel;
         this._item = item;
         this._extensionUri = extensionUri;
         this._installedProvider = installedProvider;
+        this._pathService = pathService;
 
         this._update();
 
         this._panel.onDidDispose(
             () => this.dispose(),
+            null,
+            this._disposables,
+        );
+
+        this._panel.onDidChangeViewState(
+            () => {
+                if (this._panel.visible) {
+                    this._update();
+                }
+            },
             null,
             this._disposables,
         );
@@ -58,12 +72,38 @@ export class ResourceDetailPanel {
                             this._item,
                         );
                         break;
+                    case 'installGlobally':
+                        await vscode.commands.executeCommand(
+                            'aiSkillsManager.installGlobally',
+                            this._item,
+                        );
+                        break;
                     case 'uninstall':
                         await vscode.commands.executeCommand(
                             'aiSkillsManager.uninstall',
                             this._item,
                         );
                         break;
+                    case 'moveToGlobal': {
+                        const installed = this._installedProvider.getInstalledByName(this._item.name);
+                        if (installed) {
+                            await vscode.commands.executeCommand(
+                                'aiSkillsManager.moveToGlobal',
+                                installed,
+                            );
+                        }
+                        break;
+                    }
+                    case 'moveToLocal': {
+                        const installed = this._installedProvider.getInstalledByName(this._item.name);
+                        if (installed) {
+                            await vscode.commands.executeCommand(
+                                'aiSkillsManager.moveToLocal',
+                                installed,
+                            );
+                        }
+                        break;
+                    }
                     case 'openExternal':
                         if (message.url) {
                             vscode.env.openExternal(
@@ -82,12 +122,14 @@ export class ResourceDetailPanel {
         item: ResourceItem,
         extensionUri: vscode.Uri,
         installedProvider: InstalledTreeDataProvider,
+        pathService?: PathService,
     ): ResourceDetailPanel {
         const column = vscode.window.activeTextEditor?.viewColumn;
 
         const existing = ResourceDetailPanel.panels.get(item.id);
         if (existing) {
             existing._panel.reveal(column);
+            existing._update();
             return existing;
         }
 
@@ -107,6 +149,7 @@ export class ResourceDetailPanel {
             item,
             extensionUri,
             installedProvider,
+            pathService ?? new PathService(),
         );
         ResourceDetailPanel.panels.set(item.id, instance);
         return instance;
@@ -147,8 +190,20 @@ export class ResourceDetailPanel {
             : '';
 
         const isInstalled = this._installedProvider.isInstalled(item.name);
+        const installedResource: InstalledResource | undefined = isInstalled
+            ? this._installedProvider.getInstalledByName(item.name)
+            : undefined;
+        const installedScope = installedResource?.scope;
         const nonce = this._getNonce();
         const categoryLabel = CATEGORY_LABELS[item.category];
+
+        // Resolve install paths for button tooltips
+        const localPath = this._pathService.getInstallLocationForScope(item.category, 'local');
+        const globalPath = this._pathService.getInstallLocationForScope(item.category, 'global');
+        const localTooltip = `Install to ${localPath}/${item.name}`;
+        const globalTooltip = `Install to ${globalPath}/${item.name}`;
+        const moveToGlobalTooltip = `Move to ${globalPath}/${item.name}`;
+        const moveToLocalTooltip = `Move to ${localPath}/${item.name}`;
 
         // Render body content
         const bodyHtml = isSkill
@@ -180,8 +235,13 @@ export class ResourceDetailPanel {
                 </div>
                 <div class="actions">
                     ${isInstalled
-                ? '<button class="btn danger" id="uninstallBtn"><span class="icon">🗑️</span> Remove</button>'
-                : `<button class="btn primary" id="installBtn"><span class="icon">⬇️</span> ${isSkill ? 'Install' : 'Download'}</button>`
+                ? `<button class="btn danger" id="uninstallBtn"><span class="icon">🗑️</span> Remove</button>
+                   ${installedScope === 'local'
+                    ? `<button class="btn secondary" id="moveToGlobalBtn" title="${this._esc(moveToGlobalTooltip)}"><span class="icon">🏠</span> Move to Global</button>`
+                    : `<button class="btn secondary" id="moveToLocalBtn" title="${this._esc(moveToLocalTooltip)}"><span class="icon">📁</span> Move to Local</button>`
+                }`
+                : `<button class="btn primary" id="installBtn" title="${this._esc(localTooltip)}"><span class="icon">⬇️</span> Install Locally</button>
+                   <button class="btn primary" id="installGloballyBtn" title="${this._esc(globalTooltip)}"><span class="icon">🏠</span> Install Globally</button>`
             }
                     ${hasRepo ? '<button class="btn secondary" id="sourceBtn"><span class="icon">📂</span> View Source</button>' : ''}
                 </div>
@@ -220,9 +280,12 @@ export class ResourceDetailPanel {
             const vscode = acquireVsCodeApi();
             const sourceUrl = '${sourceUrl}';
 
-            function install()   { vscode.postMessage({ command: 'install' }); }
-            function uninstall() { vscode.postMessage({ command: 'uninstall' }); }
-            function openSource(){ vscode.postMessage({ command: 'openExternal', url: sourceUrl }); }
+            function install()        { vscode.postMessage({ command: 'install' }); }
+            function installGlobally(){ vscode.postMessage({ command: 'installGlobally' }); }
+            function uninstall()      { vscode.postMessage({ command: 'uninstall' }); }
+            function moveToGlobal()   { vscode.postMessage({ command: 'moveToGlobal' }); }
+            function moveToLocal()    { vscode.postMessage({ command: 'moveToLocal' }); }
+            function openSource()     { vscode.postMessage({ command: 'openExternal', url: sourceUrl }); }
 
             function showTab(tabId) {
                 document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -233,8 +296,14 @@ export class ResourceDetailPanel {
 
             var ib = document.getElementById('installBtn');
             if (ib) ib.addEventListener('click', install);
+            var igb = document.getElementById('installGloballyBtn');
+            if (igb) igb.addEventListener('click', installGlobally);
             var ub = document.getElementById('uninstallBtn');
             if (ub) ub.addEventListener('click', uninstall);
+            var mtg = document.getElementById('moveToGlobalBtn');
+            if (mtg) mtg.addEventListener('click', moveToGlobal);
+            var mtl = document.getElementById('moveToLocalBtn');
+            if (mtl) mtl.addEventListener('click', moveToLocal);
             var sb = document.getElementById('sourceBtn');
             if (sb) sb.addEventListener('click', openSource);
             var sl = document.getElementById('sourceLink');

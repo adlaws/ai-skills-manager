@@ -2,7 +2,7 @@
     "name": "ai-skills-manager",
     "displayName": "AI Skills Manager",
     "description": "One-stop-shop for discovering, installing, and managing AI development resources – Chat Modes, Instructions, Prompts, Agents, and Skills – from GitHub repositories with customizable install locations",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "icon": "resources/logo.png",
     "publisher": "adlaws",
     "engines": {

@@ -57,6 +57,12 @@ export class InstalledResourceTreeItem extends vscode.TreeItem {
         this.contextValue = resource.scope === 'global'
             ? 'installedResourceGlobal'
             : 'installedResourceLocal';
+
+        this.command = {
+            command: 'aiSkillsManager.viewDetails',
+            title: 'View Details',
+            arguments: [this],
+        };
     }
 }
 
@@ -104,6 +110,10 @@ export class InstalledTreeDataProvider
 
     isInstalled(name: string): boolean {
         return this.installedResources.some((r) => r.name === name);
+    }
+
+    getInstalledByName(name: string): InstalledResource | undefined {
+        return this.installedResources.find((r) => r.name === name);
     }
 
     // ── TreeDataProvider ────────────────────────────────────────

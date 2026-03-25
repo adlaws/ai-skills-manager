@@ -11,7 +11,8 @@ A one-stop-shop for **Chat Modes**, **Instructions**, **Prompts**, **Agents**, a
 - **One-Click Install** — Download single files or install skill folders directly into your workspace or globally to your home directory
 - **Global & Local Scopes** — Install resources locally (per-workspace) or globally (home directory, shared across all workspaces), and move between scopes at any time
 - **Installed Resources** — View and manage all resources installed locally or globally, grouped by category with clear scope indicators
-- **Rich Preview** — Preview resource content with markdown rendering before installing
+- **Rich Preview** — Preview resource content with markdown rendering before installing, or view details for already-installed resources
+- **Context Menus** — Right-click any resource in the Marketplace or Installed tree for quick access to all available actions
 - **Repository Management** — Enable/disable repos, add your own custom repos, all from a quick-pick UI
 - **Per-Category Install Locations** — Each category installs to its own configurable folder (default: `.agents/<category>/`)
 - **GitHub Auth** — Supports personal access tokens and VS Code's built-in GitHub authentication for higher API rate limits
@@ -34,31 +35,39 @@ A one-stop-shop for **Chat Modes**, **Instructions**, **Prompts**, **Agents**, a
 ### Install a Resource
 
 1. Find the resource in the Marketplace
-2. Click the **Download** button (⬇️) to install locally (workspace), or the **Home** button (🏠) to install globally
-3. The resource will be saved to the configured install location for that category and scope
+2. Click the **Install Locally** button (⬇️) to install to the workspace, or the **Install Globally** button (🏠) to install to the home directory
+3. Or **right-click** the resource and choose **Install Locally** or **Install Globally** from the context menu
+4. The resource will be saved to the configured install location for that category and scope
+
+> **Tip:** Hover over any install or move button (in the detail panel) to see a tooltip showing the exact path the resource will be installed to.
 
 ### Move Between Global and Local
 
 1. Click the **Installed** tab
-2. Each resource shows its scope: **$(home) Global** or **$(folder) Local**
-3. Click the **Move to Global** (🏠) or **Move to Local** (📁) button in the inline actions to relocate the resource
+2. Each resource shows its scope: **\$(home) Global** or **\$(folder) Local**
+3. Click the **Move to Global** (🏠) or **Move to Local** (📁) inline button, or **right-click** and choose the move action from the context menu
 
 ### Preview Resources
 
-Click any resource in the marketplace tree to preview its contents in a detail panel with:
+Click any resource in the Marketplace or Installed tree to preview its contents in a detail panel with:
 
 - Full content / documentation with markdown rendering
 - Category badge, license, and compatibility info
 - Installation status
-- Install / Remove buttons
+- **Install Locally** / **Install Globally** buttons (with hover tooltips showing the target path)
+- **Remove** and **Move to Global** / **Move to Local** buttons for installed resources
 - View Source button to see the resource on GitHub
 
 ### Manage Installed Resources
 
 1. Click the **Installed** tab to see resources grouped by category
-2. For each installed resource you can:
-   - **Remove** — click the trash icon
-   - **Open** — click the folder icon to open the file or folder
+2. Each resource displays its scope (Global or Local) next to the description
+3. **Click** any installed resource to open its detail panel
+4. For each installed resource you can also use **inline buttons** or **right-click the context menu**:
+   - **Remove** — delete the installed file or folder
+   - **View Details** — open the documentation / detail panel (works even if the resource is no longer in the marketplace)
+   - **Open** — open the file or folder in the editor
+   - **Move to Global** / **Move to Local** — relocate between scopes (shown based on current scope)
 
 ### Manage Repositories
 
@@ -123,10 +132,10 @@ Default repositories:
 
 | Repository | Type | Description |
 |---|---|---|
-| `github/awesome-copilot` | Full | GitHub Copilot community resources |
-| `anthropics/skills` | Skills | Official Anthropic skills |
-| `pytorch/pytorch` | Skills | PyTorch agent skills |
-| `formulahendry/agent-skill-code-runner` | Skills (single) | Code runner skill |
+| [`github/awesome-copilot`](https://github.com/github/awesome-copilot) | Full | GitHub Copilot community resources |
+| [`anthropics/skills`](https://github.com/anthropics/skills) | Skills | Official Anthropic skills |
+| [`pytorch/pytorch`](https://github.com/pytorch/pytorch) | Skills | PyTorch agent skills |
+| [`formulahendry/agent-skill-code-runner`](https://github.com/formulahendry/agent-skill-code-runner) | Skills (single) | Code runner skill |
 
 Example configuration:
 
@@ -170,7 +179,7 @@ Available via Command Palette (`Ctrl+Shift+P`):
 | AI Skills Manager: Search Resources | Open search dialog |
 | AI Skills Manager: Clear Search | Clear search and show all resources |
 | AI Skills Manager: Refresh | Refresh marketplace and installed data |
-| AI Skills Manager: Install / Download | Install or download selected resource (locally) |
+| AI Skills Manager: Install Locally | Install selected resource to the workspace |
 | AI Skills Manager: Install Globally | Install selected resource to global (home directory) location |
 | AI Skills Manager: Remove | Remove selected installed resource |
 | AI Skills Manager: Move to Global | Move an installed resource from local to global scope |

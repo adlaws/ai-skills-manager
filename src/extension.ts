@@ -241,6 +241,7 @@ export function activate(context: vscode.ExtensionContext) {
                     item,
                     context.extensionUri,
                     installedProvider,
+                    pathService,
                 );
             },
         ),

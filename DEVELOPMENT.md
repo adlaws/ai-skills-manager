@@ -73,7 +73,7 @@ ai-skills-manager/
 | `services/installationService.ts` | Handles the download-and-write flow. Skills (folders) are fetched file-by-file and written recursively. Other resources are single-file downloads. Supports local and global install scopes, moving resources between scopes, overwrite prompts, and cancellation. |
 | `views/marketplaceProvider.ts` | Three-level `TreeDataProvider` (Repo → Category → Resource). Supports search filtering and tracks which items are already installed. |
 | `views/installedProvider.ts` | Two-level `TreeDataProvider` (Category → Installed Resource). Scans configured + well-known directories on disk (both local and global). Skills are recognised by the presence of `SKILL.md`. Each item shows its scope (Global/Local) and uses scope-specific context values for menu control. |
-| `views/resourceDetailPanel.ts` | Webview panel that renders resource details with `markdown-it`. Shows metadata, install/remove buttons, and a "View Source" link. |
+| `views/resourceDetailPanel.ts` | Webview panel that renders resource details with `markdown-it`. Shows metadata, install/remove buttons, and a "View Source" link. Also supports viewing details for installed resources by reading content from disk when the item isn't in the marketplace. Auto-refreshes install status when the panel becomes visible. |
 | `extension.ts` | Wires everything together — creates service instances, registers commands, sets up file watchers, and subscribes to configuration changes. |
 
 ### Build outputs
