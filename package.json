@@ -1,0 +1,318 @@
+{
+    "name": "ai-skills-manager",
+    "displayName": "AI Skills Manager",
+    "description": "One-stop-shop for discovering, installing, and managing AI development resources – Chat Modes, Instructions, Prompts, Agents, and Skills – from GitHub repositories with customizable install locations",
+    "version": "0.1.0",
+    "icon": "resources/logo.png",
+    "publisher": "adlaws",
+    "engines": {
+        "vscode": "^1.107.0"
+    },
+    "categories": [
+        "AI"
+    ],
+    "keywords": [
+        "agent",
+        "skills",
+        "marketplace",
+        "ai",
+        "copilot",
+        "claude",
+        "instructions",
+        "prompts",
+        "chatmodes",
+        "awesome-copilot"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/adlaws/ai-skills-manager.git"
+    },
+    "activationEvents": [
+        "onView:aiSkillsManager.marketplace",
+        "onView:aiSkillsManager.installed"
+    ],
+    "main": "./dist/extension.js",
+    "contributes": {
+        "viewsContainers": {
+            "activitybar": [
+                {
+                    "id": "ai-skills-manager",
+                    "title": "AI Skills Manager",
+                    "icon": "resources/skills-icon.svg"
+                }
+            ]
+        },
+        "views": {
+            "ai-skills-manager": [
+                {
+                    "id": "aiSkillsManager.marketplace",
+                    "name": "Marketplace"
+                },
+                {
+                    "id": "aiSkillsManager.installed",
+                    "name": "Installed"
+                }
+            ]
+        },
+        "viewsWelcome": [
+            {
+                "view": "aiSkillsManager.installed",
+                "contents": "No resources installed yet.\n[Browse Marketplace](command:aiSkillsManager.focusMarketplace)"
+            }
+        ],
+        "commands": [
+            {
+                "command": "aiSkillsManager.install",
+                "title": "Install / Download",
+                "icon": "$(cloud-download)",
+                "category": "AI Skills Manager"
+            },
+            {
+                "command": "aiSkillsManager.uninstall",
+                "title": "Remove",
+                "icon": "$(trash)",
+                "category": "AI Skills Manager"
+            },
+            {
+                "command": "aiSkillsManager.refresh",
+                "title": "Refresh",
+                "icon": "$(refresh)",
+                "category": "AI Skills Manager"
+            },
+            {
+                "command": "aiSkillsManager.preview",
+                "title": "Preview Resource",
+                "icon": "$(eye)",
+                "category": "AI Skills Manager"
+            },
+            {
+                "command": "aiSkillsManager.viewDetails",
+                "title": "View Details",
+                "icon": "$(info)",
+                "category": "AI Skills Manager"
+            },
+            {
+                "command": "aiSkillsManager.search",
+                "title": "Search Resources",
+                "icon": "$(search)",
+                "category": "AI Skills Manager"
+            },
+            {
+                "command": "aiSkillsManager.clearSearch",
+                "title": "Clear Search",
+                "icon": "$(close)",
+                "category": "AI Skills Manager"
+            },
+            {
+                "command": "aiSkillsManager.openResource",
+                "title": "Open Resource",
+                "icon": "$(folder-opened)",
+                "category": "AI Skills Manager"
+            },
+            {
+                "command": "aiSkillsManager.focusMarketplace",
+                "title": "Focus Marketplace View",
+                "category": "AI Skills Manager"
+            },
+            {
+                "command": "aiSkillsManager.manageRepositories",
+                "title": "Manage Repositories",
+                "icon": "$(settings-gear)",
+                "category": "AI Skills Manager"
+            }
+        ],
+        "menus": {
+            "view/title": [
+                {
+                    "command": "aiSkillsManager.search",
+                    "when": "view == aiSkillsManager.marketplace",
+                    "group": "navigation@1"
+                },
+                {
+                    "command": "aiSkillsManager.clearSearch",
+                    "when": "view == aiSkillsManager.marketplace && aiSkillsManager:searchActive",
+                    "group": "navigation@1"
+                },
+                {
+                    "command": "aiSkillsManager.refresh",
+                    "when": "view == aiSkillsManager.marketplace || view == aiSkillsManager.installed",
+                    "group": "navigation@2"
+                },
+                {
+                    "command": "aiSkillsManager.manageRepositories",
+                    "when": "view == aiSkillsManager.marketplace",
+                    "group": "navigation@3"
+                }
+            ],
+            "view/item/context": [
+                {
+                    "command": "aiSkillsManager.install",
+                    "when": "view == aiSkillsManager.marketplace && viewItem == resource",
+                    "group": "inline@1"
+                },
+                {
+                    "command": "aiSkillsManager.viewDetails",
+                    "when": "view == aiSkillsManager.marketplace && viewItem == resource",
+                    "group": "inline@2"
+                },
+                {
+                    "command": "aiSkillsManager.uninstall",
+                    "when": "view == aiSkillsManager.installed && viewItem == installedResource",
+                    "group": "inline@1"
+                },
+                {
+                    "command": "aiSkillsManager.openResource",
+                    "when": "view == aiSkillsManager.installed && viewItem == installedResource",
+                    "group": "inline@2"
+                }
+            ]
+        },
+        "configuration": {
+            "title": "AI Skills Manager",
+            "properties": {
+                "aiSkillsManager.repositories": {
+                    "type": "array",
+                    "default": [
+                        {
+                            "owner": "github",
+                            "repo": "awesome-copilot",
+                            "branch": "main",
+                            "enabled": true,
+                            "label": "Awesome Copilot"
+                        },
+                        {
+                            "owner": "anthropics",
+                            "repo": "skills",
+                            "branch": "main",
+                            "enabled": true,
+                            "skillsPath": "skills"
+                        },
+                        {
+                            "owner": "pytorch",
+                            "repo": "pytorch",
+                            "branch": "main",
+                            "enabled": true,
+                            "skillsPath": ".claude/skills"
+                        },
+                        {
+                            "owner": "formulahendry",
+                            "repo": "agent-skill-code-runner",
+                            "branch": "main",
+                            "enabled": true,
+                            "skillsPath": ".github/skills/code-runner",
+                            "singleSkill": true
+                        }
+                    ],
+                    "description": "GitHub repositories to browse for AI resources. Full repos scan all category folders (chatmodes, instructions, prompts, agents, skills). Repos with skillsPath only scan for skills at that path.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "owner": {
+                                "type": "string",
+                                "description": "GitHub repository owner"
+                            },
+                            "repo": {
+                                "type": "string",
+                                "description": "GitHub repository name"
+                            },
+                            "branch": {
+                                "type": "string",
+                                "default": "main",
+                                "description": "Branch name"
+                            },
+                            "enabled": {
+                                "type": "boolean",
+                                "default": true,
+                                "description": "Whether this repository is enabled"
+                            },
+                            "label": {
+                                "type": "string",
+                                "description": "Display label for the repository"
+                            },
+                            "skillsPath": {
+                                "type": "string",
+                                "description": "Path to skills directory (makes this a skills-only repo)"
+                            },
+                            "singleSkill": {
+                                "type": "boolean",
+                                "default": false,
+                                "description": "If true with skillsPath, the path points directly to a single skill folder"
+                            }
+                        },
+                        "required": [
+                            "owner",
+                            "repo"
+                        ]
+                    }
+                },
+                "aiSkillsManager.installLocation.chatmodes": {
+                    "type": "string",
+                    "default": ".agents/chatmodes",
+                    "description": "Where to install Chat Modes relative to the workspace root, or use '~/' prefix for home directory."
+                },
+                "aiSkillsManager.installLocation.instructions": {
+                    "type": "string",
+                    "default": ".agents/instructions",
+                    "description": "Where to install Instructions relative to the workspace root, or use '~/' prefix for home directory."
+                },
+                "aiSkillsManager.installLocation.prompts": {
+                    "type": "string",
+                    "default": ".agents/prompts",
+                    "description": "Where to install Prompts relative to the workspace root, or use '~/' prefix for home directory."
+                },
+                "aiSkillsManager.installLocation.agents": {
+                    "type": "string",
+                    "default": ".agents/agents",
+                    "description": "Where to install Agents relative to the workspace root, or use '~/' prefix for home directory."
+                },
+                "aiSkillsManager.installLocation.skills": {
+                    "type": "string",
+                    "default": ".agents/skills",
+                    "description": "Where to install Skills relative to the workspace root, or use '~/' prefix for home directory."
+                },
+                "aiSkillsManager.githubToken": {
+                    "type": "string",
+                    "default": "",
+                    "description": "GitHub personal access token for higher API rate limits (optional)",
+                    "scope": "application"
+                },
+                "aiSkillsManager.cacheTimeout": {
+                    "type": "number",
+                    "default": 3600,
+                    "description": "Cache timeout for marketplace data in seconds"
+                }
+            }
+        }
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run package",
+        "compile": "npm run check-types && npm run lint && node esbuild.js",
+        "watch": "npm-run-all -p watch:*",
+        "watch:esbuild": "node esbuild.js --watch",
+        "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+        "package": "npm run check-types && npm run lint && node esbuild.js --production",
+        "compile-tests": "tsc -p . --outDir out",
+        "watch-tests": "tsc -p . -w --outDir out",
+        "pretest": "npm run compile-tests && npm run compile && npm run lint",
+        "check-types": "tsc --noEmit",
+        "lint": "eslint src",
+        "test": "vscode-test"
+    },
+    "devDependencies": {
+        "@types/mocha": "^10.0.10",
+        "@types/node": "22.x",
+        "@types/vscode": "^1.107.0",
+        "@vscode/test-cli": "^0.0.12",
+        "@vscode/test-electron": "^2.5.2",
+        "@vscode/vsce": "^3.7.1",
+        "esbuild": "^0.27.1",
+        "eslint": "^9.39.1",
+        "npm-run-all": "^4.1.5",
+        "typescript": "^5.9.3",
+        "typescript-eslint": "^8.48.1"
+    },
+    "dependencies": {
+        "@types/markdown-it": "^14.1.2",
+        "markdown-it": "^14.1.0"
+    }
+}
