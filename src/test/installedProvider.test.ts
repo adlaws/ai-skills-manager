@@ -23,6 +23,7 @@ function makeInstalledResource(
         category: ResourceCategory.Skills,
         location: '.agents/skills/test-resource',
         installedAt: new Date().toISOString(),
+        scope: 'local',
         ...overrides,
     };
 }
@@ -97,18 +98,31 @@ suite('InstalledTreeDataProvider', () => {
             assert.strictEqual(item.label, 'my-skill');
         });
 
-        test('description is the resource description', () => {
+        test('description includes resource description and scope', () => {
             const resource = makeInstalledResource({
                 description: 'Does something cool',
             });
             const item = new InstalledResourceTreeItem(resource);
-            assert.strictEqual(item.description, 'Does something cool');
+            assert.ok(
+                (item.description as string).includes('Does something cool'),
+                'Description should include resource description',
+            );
+            assert.ok(
+                (item.description as string).includes('Local'),
+                'Description should include scope label',
+            );
         });
 
-        test('contextValue is "installedResource"', () => {
-            const resource = makeInstalledResource();
+        test('contextValue is "installedResourceLocal" for local scope', () => {
+            const resource = makeInstalledResource({ scope: 'local' });
             const item = new InstalledResourceTreeItem(resource);
-            assert.strictEqual(item.contextValue, 'installedResource');
+            assert.strictEqual(item.contextValue, 'installedResourceLocal');
+        });
+
+        test('contextValue is "installedResourceGlobal" for global scope', () => {
+            const resource = makeInstalledResource({ scope: 'global' });
+            const item = new InstalledResourceTreeItem(resource);
+            assert.strictEqual(item.contextValue, 'installedResourceGlobal');
         });
 
         test('skills use folder icon', () => {

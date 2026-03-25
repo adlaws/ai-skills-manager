@@ -6,7 +6,7 @@
  */
 
 import * as vscode from 'vscode';
-import { ResourceItem, InstalledResource, ResourceCategory } from '../types';
+import { ResourceItem, InstalledResource, ResourceCategory, InstallScope } from '../types';
 import { ResourceClient } from '../github/resourceClient';
 import { PathService } from './pathService';
 
@@ -22,14 +22,14 @@ export class InstallationService {
     /**
      * Install a marketplace resource to the configured location.
      */
-    async installResource(item: ResourceItem): Promise<boolean> {
+    async installResource(item: ResourceItem, scope: InstallScope = 'local'): Promise<boolean> {
         if (
             item.category === ResourceCategory.Skills &&
             item.file.type === 'dir'
         ) {
-            return this.installSkillFolder(item);
+            return this.installSkillFolder(item, scope);
         }
-        return this.installSingleFile(item);
+        return this.installSingleFile(item, scope);
     }
 
     /**
@@ -123,10 +123,109 @@ export class InstallationService {
         }
     }
 
+    /**
+     * Move an installed resource between global and local scope.
+     */
+    async moveResource(
+        resource: InstalledResource,
+        targetScope: InstallScope,
+    ): Promise<boolean> {
+        const sourceWf = this.pathService.getWorkspaceFolderForLocation(
+            resource.location,
+        );
+        const sourceUri = this.pathService.resolveLocationToUri(
+            resource.location,
+            sourceWf,
+        );
+        if (!sourceUri) {
+            vscode.window.showErrorMessage('Failed to resolve source location.');
+            return false;
+        }
+
+        const targetInstallLocation = this.pathService.getInstallLocationForScope(
+            resource.category,
+            targetScope,
+        );
+        const targetWf =
+            this.pathService.getWorkspaceFolderForLocation(targetInstallLocation);
+
+        if (
+            this.pathService.requiresWorkspaceFolder(targetInstallLocation) &&
+            !targetWf
+        ) {
+            vscode.window.showErrorMessage(
+                'No workspace folder open. Please open a folder first.',
+            );
+            return false;
+        }
+
+        const targetUri = this.pathService.resolveInstallTargetForScope(
+            resource.category,
+            resource.name,
+            targetScope,
+            targetWf,
+        );
+        if (!targetUri) {
+            vscode.window.showErrorMessage(
+                'Failed to resolve target install location.',
+            );
+            return false;
+        }
+
+        const scopeLabel = targetScope === 'global' ? 'Global' : 'Local';
+        const isFolder = resource.category === ResourceCategory.Skills;
+
+        try {
+            // Check if target already exists
+            try {
+                await vscode.workspace.fs.stat(targetUri);
+                const overwrite = await vscode.window.showWarningMessage(
+                    `"${resource.name}" already exists at the ${scopeLabel.toLowerCase()} location. Overwrite?`,
+                    { modal: true },
+                    'Overwrite',
+                );
+                if (overwrite !== 'Overwrite') {
+                    return false;
+                }
+                await vscode.workspace.fs.delete(targetUri, {
+                    recursive: true,
+                });
+            } catch {
+                // doesn't exist – good
+            }
+
+            // Create parent directories
+            const parentDir = vscode.Uri.joinPath(targetUri, '..');
+            await vscode.workspace.fs.createDirectory(parentDir);
+
+            // Copy
+            await vscode.workspace.fs.copy(sourceUri, targetUri, {
+                overwrite: true,
+            });
+
+            // Remove source
+            await vscode.workspace.fs.delete(sourceUri, {
+                recursive: isFolder,
+                useTrash: true,
+            });
+
+            vscode.window.showInformationMessage(
+                `Moved "${resource.name}" to ${scopeLabel}`,
+            );
+            return true;
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            vscode.window.showErrorMessage(
+                `Failed to move resource: ${msg}`,
+            );
+            return false;
+        }
+    }
+
     // ── Private: Skill folder installation ──────────────────────
 
-    private async installSkillFolder(item: ResourceItem): Promise<boolean> {
-        const targetDir = this.resolveTarget(item);
+    private async installSkillFolder(item: ResourceItem, scope: InstallScope): Promise<boolean> {
+        const targetDir = this.resolveTarget(item, scope);
         if (!targetDir) {
             return false;
         }
@@ -243,8 +342,8 @@ export class InstallationService {
 
     // ── Private: Single file installation ───────────────────────
 
-    private async installSingleFile(item: ResourceItem): Promise<boolean> {
-        const targetFile = this.resolveTarget(item);
+    private async installSingleFile(item: ResourceItem, scope: InstallScope): Promise<boolean> {
+        const targetFile = this.resolveTarget(item, scope);
         if (!targetFile) {
             return false;
         }
@@ -313,9 +412,10 @@ export class InstallationService {
 
     // ── Helpers ─────────────────────────────────────────────────
 
-    private resolveTarget(item: ResourceItem): vscode.Uri | undefined {
-        const installLocation = this.pathService.getInstallLocation(
+    private resolveTarget(item: ResourceItem, scope: InstallScope = 'local'): vscode.Uri | undefined {
+        const installLocation = this.pathService.getInstallLocationForScope(
             item.category,
+            scope,
         );
         const workspaceFolder =
             this.pathService.getWorkspaceFolderForLocation(installLocation);
@@ -330,9 +430,10 @@ export class InstallationService {
             return undefined;
         }
 
-        const target = this.pathService.resolveInstallTarget(
+        const target = this.pathService.resolveInstallTargetForScope(
             item.category,
             item.name,
+            scope,
             workspaceFolder,
         );
         if (!target) {

@@ -8,8 +8,9 @@ A one-stop-shop for **Chat Modes**, **Instructions**, **Prompts**, **Agents**, a
 
 - **Resource Marketplace** — Browse Chat Modes, Instructions, Prompts, Agents, and Skills from multiple GitHub repositories
 - **Search** — Quickly find resources by name or keyword
-- **One-Click Install** — Download single files or install skill folders directly into your workspace
-- **Installed Resources** — View and manage all resources installed in your workspace, grouped by category
+- **One-Click Install** — Download single files or install skill folders directly into your workspace or globally to your home directory
+- **Global & Local Scopes** — Install resources locally (per-workspace) or globally (home directory, shared across all workspaces), and move between scopes at any time
+- **Installed Resources** — View and manage all resources installed locally or globally, grouped by category with clear scope indicators
 - **Rich Preview** — Preview resource content with markdown rendering before installing
 - **Repository Management** — Enable/disable repos, add your own custom repos, all from a quick-pick UI
 - **Per-Category Install Locations** — Each category installs to its own configurable folder (default: `.agents/<category>/`)
@@ -33,8 +34,14 @@ A one-stop-shop for **Chat Modes**, **Instructions**, **Prompts**, **Agents**, a
 ### Install a Resource
 
 1. Find the resource in the Marketplace
-2. Click the **Download** button (⬇️) for files, or **Install** for skill folders
-3. The resource will be saved to the configured install location for that category
+2. Click the **Download** button (⬇️) to install locally (workspace), or the **Home** button (🏠) to install globally
+3. The resource will be saved to the configured install location for that category and scope
+
+### Move Between Global and Local
+
+1. Click the **Installed** tab
+2. Each resource shows its scope: **$(home) Global** or **$(folder) Local**
+3. Click the **Move to Global** (🏠) or **Move to Local** (📁) button in the inline actions to relocate the resource
 
 ### Preview Resources
 
@@ -77,17 +84,31 @@ Press `Ctrl+,` (or `Cmd+,` on Mac) and search for **AI Skills Manager**.
 
 ### Install Locations
 
-Each category has its own install location setting, all defaulting to `.agents/<category>/`:
+Each category has separate **local** and **global** install location settings:
+
+#### Local (per-workspace)
 
 | Setting | Default | Description |
 |---|---|---|
-| `aiSkillsManager.installLocation.chatmodes` | `.agents/chatmodes` | Where to install Chat Modes |
-| `aiSkillsManager.installLocation.instructions` | `.agents/instructions` | Where to install Instructions |
-| `aiSkillsManager.installLocation.prompts` | `.agents/prompts` | Where to install Prompts |
-| `aiSkillsManager.installLocation.agents` | `.agents/agents` | Where to install Agents |
-| `aiSkillsManager.installLocation.skills` | `.agents/skills` | Where to install Skills |
+| `aiSkillsManager.installLocation.chatmodes` | `.agents/chatmodes` | Where to install Chat Modes locally |
+| `aiSkillsManager.installLocation.instructions` | `.agents/instructions` | Where to install Instructions locally |
+| `aiSkillsManager.installLocation.prompts` | `.agents/prompts` | Where to install Prompts locally |
+| `aiSkillsManager.installLocation.agents` | `.agents/agents` | Where to install Agents locally |
+| `aiSkillsManager.installLocation.skills` | `.agents/skills` | Where to install Skills locally |
 
-All paths are relative to the workspace root. Use `~/` prefix for home directory paths (e.g. `~/.copilot/skills`).
+Local paths are relative to the workspace root. Use `~/` prefix for home directory paths.
+
+#### Global (home directory)
+
+| Setting | Default | Description |
+|---|---|---|
+| `aiSkillsManager.globalInstallLocation.chatmodes` | `~/.agents/chatmodes` | Where to install Chat Modes globally |
+| `aiSkillsManager.globalInstallLocation.instructions` | `~/.agents/instructions` | Where to install Instructions globally |
+| `aiSkillsManager.globalInstallLocation.prompts` | `~/.agents/prompts` | Where to install Prompts globally |
+| `aiSkillsManager.globalInstallLocation.agents` | `~/.agents/agents` | Where to install Agents globally |
+| `aiSkillsManager.globalInstallLocation.skills` | `~/.agents/skills` | Where to install Skills globally |
+
+Global resources are shared across all workspaces and resolve under the user's home directory.
 
 ### Repositories
 
@@ -149,8 +170,11 @@ Available via Command Palette (`Ctrl+Shift+P`):
 | AI Skills Manager: Search Resources | Open search dialog |
 | AI Skills Manager: Clear Search | Clear search and show all resources |
 | AI Skills Manager: Refresh | Refresh marketplace and installed data |
-| AI Skills Manager: Install / Download | Install or download selected resource |
+| AI Skills Manager: Install / Download | Install or download selected resource (locally) |
+| AI Skills Manager: Install Globally | Install selected resource to global (home directory) location |
 | AI Skills Manager: Remove | Remove selected installed resource |
+| AI Skills Manager: Move to Global | Move an installed resource from local to global scope |
+| AI Skills Manager: Move to Local | Move an installed resource from global to local scope |
 | AI Skills Manager: Preview Resource | Preview resource content |
 | AI Skills Manager: View Details | Open resource detail panel |
 | AI Skills Manager: Open Resource | Open installed resource file/folder |
@@ -213,8 +237,8 @@ The test suite runs inside the VS Code Extension Host via `@vscode/test-cli` + `
 
 | Test file | Module under test | What's covered |
 |---|---|---|
-| `types.test.ts` | `types.ts` | `ResourceCategory` enum, `ALL_CATEGORIES`, `CATEGORY_LABELS`, `CATEGORY_ICONS`, `DEFAULT_INSTALL_PATHS` |
-| `pathService.test.ts` | `services/pathService.ts` | `isHomeLocation`, `requiresWorkspaceFolder`, `getInstallLocation`, `getScanLocations`, `resolveLocationToUri`, `resolveInstallTarget` |
+| `types.test.ts` | `types.ts` | `ResourceCategory` enum, `ALL_CATEGORIES`, `CATEGORY_LABELS`, `CATEGORY_ICONS`, `DEFAULT_INSTALL_PATHS`, `DEFAULT_GLOBAL_INSTALL_PATHS` |
+| `pathService.test.ts` | `services/pathService.ts` | `isHomeLocation`, `requiresWorkspaceFolder`, `getInstallLocation`, `getGlobalInstallLocation`, `getInstallLocationForScope`, `getScopeForLocation`, `getScanLocations`, `resolveLocationToUri`, `resolveInstallTarget`, `resolveInstallTargetForScope` |
 | `resourceClient.test.ts` | `github/resourceClient.ts` | SKILL.md parsing (frontmatter, missing fields, Windows line endings), `repoKey`, `toResourceItem`, cache get/set/clear |
 | `marketplaceProvider.test.ts` | `views/marketplaceProvider.ts` | `RepoTreeItem`, `CategoryTreeItem`, `ResourceTreeItem` (labels, icons, context values), search activate/clear, `getAllItems`, `getItemByName` |
 | `installedProvider.test.ts` | `views/installedProvider.ts` | `InstalledCategoryTreeItem`, `InstalledResourceTreeItem` (labels, icons, tooltips), `getInstalledNames`, `isInstalled`, `getChildren` |
@@ -251,7 +275,8 @@ src/
 ### Key design decisions
 
 - **Two repository modes**: "Full repos" scan well-known category folders via the Contents API. "Skills repos" (with `skillsPath`) use the Git Trees API for efficient recursive scanning.
-- **Per-category install locations**: Each of the five categories has its own configurable path, defaulting to `.agents/<category>/`. Paths starting with `~/` resolve to the user's home directory.
+- **Per-category install locations**: Each of the five categories has its own configurable local and global path. Local paths default to `.agents/<category>/` (workspace-relative); global paths default to `~/.agents/<category>/` (home directory). Paths starting with `~/` resolve to the user's home directory.
+- **Global & local scopes**: Resources can be installed locally (workspace) or globally (home directory). Installed items display their scope and can be moved between scopes via inline actions.
 - **GitHub auth cascade**: Tries `aiSkillsManager.githubToken` first, then falls back to VS Code's built-in GitHub authentication (`vscode.authentication`).
 - **Install strategy**: Skills (folders) are fetched file-by-file and written to disk. Other resources are single-file downloads.
 - **Caching**: All API responses are cached in memory with a configurable TTL (`cacheTimeout`, default 1 hour).

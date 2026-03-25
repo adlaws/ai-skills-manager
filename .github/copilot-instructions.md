@@ -11,6 +11,10 @@
 - Key files: `types.ts`, `github/resourceClient.ts`, `services/pathService.ts`, `services/installationService.ts`, `views/marketplaceProvider.ts`, `views/installedProvider.ts`, `views/resourceDetailPanel.ts`, `extension.ts`.
 - Run `npm run watch` for development, press F5 to launch Extension Development Host.
 - Configuration prefix is `aiSkillsManager.*` (not `agentSkills.*`).
-- Each resource category has its own install location setting (`aiSkillsManager.installLocation.<category>`), all defaulting to `.agents/<category>/`.
+- Each resource category has its own local install location setting (`aiSkillsManager.installLocation.<category>`), defaulting to `.agents/<category>/`.
+- Each resource category also has a global install location setting (`aiSkillsManager.globalInstallLocation.<category>`), defaulting to `~/.agents/<category>/`.
+- Resources have an `InstallScope` (`'local' | 'global'`). The `InstalledResource` interface includes a `scope` field.
 - Install location settings are free-form strings, not enums. Paths starting with `~/` resolve to home directory.
+- Installed tree items use scope-specific `contextValue`: `installedResourceLocal` or `installedResourceGlobal`.
+- Resources can be moved between local and global scopes via `moveToGlobal` / `moveToLocal` commands.
 - Repositories use `aiSkillsManager.repositories` (not `skillRepositories`) and have an `enabled` boolean flag for toggling.

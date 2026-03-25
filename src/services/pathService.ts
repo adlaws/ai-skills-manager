@@ -10,7 +10,7 @@
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { ResourceCategory, DEFAULT_INSTALL_PATHS } from '../types';
+import { ResourceCategory, DEFAULT_INSTALL_PATHS, DEFAULT_GLOBAL_INSTALL_PATHS, InstallScope } from '../types';
 
 export class PathService {
     // ── Workspace / FS accessors (easy to mock in tests) ────────
@@ -41,17 +41,47 @@ export class PathService {
     }
 
     /**
+     * Read the configured global install location string for a given category.
+     */
+    getGlobalInstallLocation(category: ResourceCategory): string {
+        const config = vscode.workspace.getConfiguration('aiSkillsManager');
+        return config.get<string>(
+            `globalInstallLocation.${category}`,
+            DEFAULT_GLOBAL_INSTALL_PATHS[category],
+        );
+    }
+
+    /**
+     * Get the install location for a given scope + category.
+     */
+    getInstallLocationForScope(category: ResourceCategory, scope: InstallScope): string {
+        return scope === 'global'
+            ? this.getGlobalInstallLocation(category)
+            : this.getInstallLocation(category);
+    }
+
+    /**
      * Locations to scan when enumerating installed resources for a category.
-     * Includes the configured location plus well-known defaults.
+     * Includes the configured local and global locations plus well-known defaults.
      */
     getScanLocations(category: ResourceCategory): string[] {
         const configured = this.getInstallLocation(category);
+        const globalConfigured = this.getGlobalInstallLocation(category);
         const wellKnown = new Set<string>([
             DEFAULT_INSTALL_PATHS[category],
             `.github/${category}`,
+            DEFAULT_GLOBAL_INSTALL_PATHS[category],
         ]);
         wellKnown.add(configured);
+        wellKnown.add(globalConfigured);
         return [...wellKnown];
+    }
+
+    /**
+     * Determine the scope of an installed resource based on its location string.
+     */
+    getScopeForLocation(location: string): InstallScope {
+        return this.isHomeLocation(location) ? 'global' : 'local';
     }
 
     // ── Path helpers ────────────────────────────────────────────
@@ -108,12 +138,24 @@ export class PathService {
         resourceName: string,
         workspaceFolder?: vscode.WorkspaceFolder,
     ): vscode.Uri | undefined {
+        return this.resolveInstallTargetForScope(category, resourceName, 'local', workspaceFolder);
+    }
+
+    /**
+     * Resolve the target URI for installing a resource at the given scope.
+     */
+    resolveInstallTargetForScope(
+        category: ResourceCategory,
+        resourceName: string,
+        scope: InstallScope,
+        workspaceFolder?: vscode.WorkspaceFolder,
+    ): vscode.Uri | undefined {
         const trimmed = resourceName.trim();
         if (!trimmed || trimmed === '.' || trimmed.includes('..')) {
             return undefined;
         }
 
-        const installLocation = this.getInstallLocation(category);
+        const installLocation = this.getInstallLocationForScope(category, scope);
         const resolvedWf =
             workspaceFolder ?? this.getWorkspaceFolderForLocation(installLocation);
         const baseDir = this.resolveLocationToUri(installLocation, resolvedWf);

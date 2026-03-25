@@ -134,19 +134,17 @@ export class ResourceDetailPanel {
     private _getHtmlForWebview(): string {
         const item = this._item;
 
-        if (!item.repo?.owner || !item.repo?.repo) {
-            return this._getErrorHtml(
-                'Invalid resource data. Please close this panel and try again.',
-            );
-        }
+        const hasRepo = !!(item.repo?.owner && item.repo?.repo);
 
         const isSkill =
             item.category === ResourceCategory.Skills &&
             item.file.type === 'dir';
 
-        const sourceUrl = isSkill
-            ? `https://github.com/${item.repo.owner}/${item.repo.repo}/tree/${item.repo.branch}/${item.file.path}`
-            : `https://github.com/${item.repo.owner}/${item.repo.repo}/blob/${item.repo.branch}/${item.file.path}`;
+        const sourceUrl = hasRepo
+            ? isSkill
+                ? `https://github.com/${item.repo.owner}/${item.repo.repo}/tree/${item.repo.branch}/${item.file.path}`
+                : `https://github.com/${item.repo.owner}/${item.repo.repo}/blob/${item.repo.branch}/${item.file.path}`
+            : '';
 
         const isInstalled = this._installedProvider.isInstalled(item.name);
         const nonce = this._getNonce();
@@ -185,15 +183,20 @@ export class ResourceDetailPanel {
                 ? '<button class="btn danger" id="uninstallBtn"><span class="icon">🗑️</span> Remove</button>'
                 : `<button class="btn primary" id="installBtn"><span class="icon">⬇️</span> ${isSkill ? 'Install' : 'Download'}</button>`
             }
-                    <button class="btn secondary" id="sourceBtn"><span class="icon">📂</span> View Source</button>
+                    ${hasRepo ? '<button class="btn secondary" id="sourceBtn"><span class="icon">📂</span> View Source</button>' : ''}
                 </div>
             </div>
         </div>
 
+        ${hasRepo ? `
         <div class="source-info">
             <span class="label">Source:</span>
             <a href="#" id="sourceLink">${this._esc(item.repo.owner)}/${this._esc(item.repo.repo)}/${this._esc(item.file.path)}</a>
-        </div>
+        </div>` : `
+        <div class="source-info">
+            <span class="label">Location:</span>
+            <span>${this._esc(item.file.path)}</span>
+        </div>`}
 
         ${isSkill
                 ? `
@@ -232,8 +235,10 @@ export class ResourceDetailPanel {
             if (ib) ib.addEventListener('click', install);
             var ub = document.getElementById('uninstallBtn');
             if (ub) ub.addEventListener('click', uninstall);
-            document.getElementById('sourceBtn').addEventListener('click', openSource);
-            document.getElementById('sourceLink').addEventListener('click', function(e){ e.preventDefault(); openSource(); });
+            var sb = document.getElementById('sourceBtn');
+            if (sb) sb.addEventListener('click', openSource);
+            var sl = document.getElementById('sourceLink');
+            if (sl) sl.addEventListener('click', function(e){ e.preventDefault(); openSource(); });
             document.querySelectorAll('.tab').forEach(function(tab){
                 tab.addEventListener('click', function(){ showTab(this.getAttribute('data-tab')); });
             });

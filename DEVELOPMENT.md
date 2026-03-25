@@ -67,12 +67,12 @@ ai-skills-manager/
 
 | Module | Responsibility |
 |---|---|
-| `types.ts` | `ResourceCategory` enum (5 categories), label/icon/default-path lookup maps, all shared interfaces (`ResourceItem`, `InstalledResource`, `ResourceRepository`, etc.) |
+| `types.ts` | `ResourceCategory` enum (5 categories), label/icon/default-path lookup maps, `DEFAULT_GLOBAL_INSTALL_PATHS`, `InstallScope` type, all shared interfaces (`ResourceItem`, `InstalledResource`, `ResourceRepository`, etc.) |
 | `github/resourceClient.ts` | Fetches resources from GitHub. **Full repos** use the Contents API to list category folders. **Skills repos** (`skillsPath` set) use the Git Trees API for recursive scanning. Raw content is fetched from `raw.githubusercontent.com`. All responses are cached in memory with a configurable TTL. |
-| `services/pathService.ts` | Resolves per-category install and scan locations. Paths starting with `~/` resolve to the home directory; all others resolve relative to the first workspace folder. |
-| `services/installationService.ts` | Handles the download-and-write flow. Skills (folders) are fetched file-by-file and written recursively. Other resources are single-file downloads. Supports overwrite prompts and cancellation. |
+| `services/pathService.ts` | Resolves per-category install and scan locations, for both local (workspace) and global (home directory) scopes. Paths starting with `~/` resolve to the home directory; all others resolve relative to the first workspace folder. |
+| `services/installationService.ts` | Handles the download-and-write flow. Skills (folders) are fetched file-by-file and written recursively. Other resources are single-file downloads. Supports local and global install scopes, moving resources between scopes, overwrite prompts, and cancellation. |
 | `views/marketplaceProvider.ts` | Three-level `TreeDataProvider` (Repo → Category → Resource). Supports search filtering and tracks which items are already installed. |
-| `views/installedProvider.ts` | Two-level `TreeDataProvider` (Category → Installed Resource). Scans configured + well-known directories on disk. Skills are recognised by the presence of `SKILL.md`. |
+| `views/installedProvider.ts` | Two-level `TreeDataProvider` (Category → Installed Resource). Scans configured + well-known directories on disk (both local and global). Skills are recognised by the presence of `SKILL.md`. Each item shows its scope (Global/Local) and uses scope-specific context values for menu control. |
 | `views/resourceDetailPanel.ts` | Webview panel that renders resource details with `markdown-it`. Shows metadata, install/remove buttons, and a "View Source" link. |
 | `extension.ts` | Wires everything together — creates service instances, registers commands, sets up file watchers, and subscribes to configuration changes. |
 
@@ -218,11 +218,11 @@ export default defineConfig({
 
 | Test file | Module under test | What's covered |
 |---|---|---|
-| `types.test.ts` | `types.ts` | Enum values, `ALL_CATEGORIES`, label/icon/path maps |
-| `pathService.test.ts` | `services/pathService.ts` | Home vs. workspace paths, scan locations, install target resolution |
+| `types.test.ts` | `types.ts` | Enum values, `ALL_CATEGORIES`, label/icon/path maps, `DEFAULT_GLOBAL_INSTALL_PATHS` |
+| `pathService.test.ts` | `services/pathService.ts` | Home vs. workspace paths, scan locations (including global), install target resolution for both scopes, `getScopeForLocation` |
 | `resourceClient.test.ts` | `github/resourceClient.ts` | SKILL.md parsing (valid / missing / Windows CRLF), repo key, item creation, cache lifecycle |
 | `marketplaceProvider.test.ts` | `views/marketplaceProvider.ts` | Tree item properties (labels, icons, context values), search API, event firing |
-| `installedProvider.test.ts` | `views/installedProvider.ts` | Tree item properties, `getInstalledNames`, `isInstalled`, `getChildren` dispatch |
+| `installedProvider.test.ts` | `views/installedProvider.ts` | Tree item properties (including scope badges and scope-specific contextValues), `getInstalledNames`, `isInstalled`, `getChildren` dispatch |
 
 ## Packaging & Distribution
 
@@ -348,11 +348,16 @@ These settings affect the extension at runtime. During development in the Extens
 | Setting | Type | Default | Description |
 |---|---|---|---|
 | `aiSkillsManager.repositories` | array | *(4 default repos)* | GitHub repositories to browse |
-| `aiSkillsManager.installLocation.chatmodes` | string | `.agents/chatmodes` | Chat Modes install path |
-| `aiSkillsManager.installLocation.instructions` | string | `.agents/instructions` | Instructions install path |
-| `aiSkillsManager.installLocation.prompts` | string | `.agents/prompts` | Prompts install path |
-| `aiSkillsManager.installLocation.agents` | string | `.agents/agents` | Agents install path |
-| `aiSkillsManager.installLocation.skills` | string | `.agents/skills` | Skills install path |
+| `aiSkillsManager.installLocation.chatmodes` | string | `.agents/chatmodes` | Local Chat Modes install path |
+| `aiSkillsManager.installLocation.instructions` | string | `.agents/instructions` | Local Instructions install path |
+| `aiSkillsManager.installLocation.prompts` | string | `.agents/prompts` | Local Prompts install path |
+| `aiSkillsManager.installLocation.agents` | string | `.agents/agents` | Local Agents install path |
+| `aiSkillsManager.installLocation.skills` | string | `.agents/skills` | Local Skills install path |
+| `aiSkillsManager.globalInstallLocation.chatmodes` | string | `~/.agents/chatmodes` | Global Chat Modes install path |
+| `aiSkillsManager.globalInstallLocation.instructions` | string | `~/.agents/instructions` | Global Instructions install path |
+| `aiSkillsManager.globalInstallLocation.prompts` | string | `~/.agents/prompts` | Global Prompts install path |
+| `aiSkillsManager.globalInstallLocation.agents` | string | `~/.agents/agents` | Global Agents install path |
+| `aiSkillsManager.globalInstallLocation.skills` | string | `~/.agents/skills` | Global Skills install path |
 | `aiSkillsManager.githubToken` | string | `""` | GitHub PAT for higher rate limits |
 | `aiSkillsManager.cacheTimeout` | number | `3600` | Cache TTL in seconds |
 

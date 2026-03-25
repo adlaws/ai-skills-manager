@@ -47,6 +47,16 @@ export const DEFAULT_INSTALL_PATHS: Record<ResourceCategory, string> = {
     [ResourceCategory.Skills]: '.agents/skills',
 };
 
+export const DEFAULT_GLOBAL_INSTALL_PATHS: Record<ResourceCategory, string> = {
+    [ResourceCategory.ChatModes]: '~/.agents/chatmodes',
+    [ResourceCategory.Instructions]: '~/.agents/instructions',
+    [ResourceCategory.Prompts]: '~/.agents/prompts',
+    [ResourceCategory.Agents]: '~/.agents/agents',
+    [ResourceCategory.Skills]: '~/.agents/skills',
+};
+
+export type InstallScope = 'local' | 'global';
+
 // ── Repository configuration ────────────────────────────────────
 
 /**
@@ -107,6 +117,8 @@ export interface InstalledResource {
     /** Relative location string, e.g. ".agents/skills/my-skill". */
     location: string;
     installedAt: string;
+    /** Whether the resource is installed locally (workspace) or globally (home directory). */
+    scope: InstallScope;
 }
 
 // ── Git Trees API types (used for skills repos) ─────────────────

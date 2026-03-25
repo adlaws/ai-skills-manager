@@ -36,11 +36,17 @@ export class InstalledResourceTreeItem extends vscode.TreeItem {
     constructor(public readonly resource: InstalledResource) {
         super(resource.name, vscode.TreeItemCollapsibleState.None);
 
-        this.description = resource.description;
+        const scopeLabel = resource.scope === 'global' ? '$(home) Global' : '$(folder) Local';
+        this.description = resource.description
+            ? `${resource.description} • ${scopeLabel}`
+            : scopeLabel;
 
         this.tooltip = new vscode.MarkdownString();
         this.tooltip.appendMarkdown(`**${resource.name}**\n\n`);
-        this.tooltip.appendMarkdown(`${resource.description}\n\n`);
+        if (resource.description) {
+            this.tooltip.appendMarkdown(`${resource.description}\n\n`);
+        }
+        this.tooltip.appendMarkdown(`*Scope: ${resource.scope === 'global' ? 'Global (home directory)' : 'Local (workspace)'}*\n\n`);
         this.tooltip.appendMarkdown(`*Location: ${resource.location}*`);
 
         this.iconPath =
@@ -48,7 +54,9 @@ export class InstalledResourceTreeItem extends vscode.TreeItem {
                 ? new vscode.ThemeIcon('folder')
                 : new vscode.ThemeIcon(CATEGORY_ICONS[resource.category]);
 
-        this.contextValue = 'installedResource';
+        this.contextValue = resource.scope === 'global'
+            ? 'installedResourceGlobal'
+            : 'installedResourceLocal';
     }
 }
 
@@ -188,6 +196,7 @@ export class InstalledTreeDataProvider
                                     category,
                                     location: `${location}/${name}`,
                                     installedAt: new Date().toISOString(),
+                                    scope: this.pathService.getScopeForLocation(location),
                                 });
                             } catch {
                                 // No SKILL.md, skip
@@ -203,6 +212,7 @@ export class InstalledTreeDataProvider
                                 category,
                                 location: `${location}/${name}`,
                                 installedAt: new Date().toISOString(),
+                                scope: this.pathService.getScopeForLocation(location),
                             });
                         }
                     }

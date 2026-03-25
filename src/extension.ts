@@ -20,6 +20,92 @@ import { InstallationService } from './services/installationService';
 import { PathService } from './services/pathService';
 import { ResourceItem, InstalledResource, ResourceRepository, ResourceCategory } from './types';
 
+// ── Helpers ─────────────────────────────────────────────────────
+
+/**
+ * Build a synthetic `ResourceItem` from an installed resource by reading
+ * its content from disk. This allows the detail panel to show documentation
+ * for locally-installed resources that aren't (or are no longer) in the
+ * marketplace data.
+ */
+async function buildResourceItemFromInstalled(
+    resource: InstalledResource,
+    pathService: PathService,
+): Promise<ResourceItem | undefined> {
+    const wf = pathService.getWorkspaceFolderForLocation(resource.location);
+    const uri = pathService.resolveLocationToUri(resource.location, wf);
+    if (!uri) {
+        return undefined;
+    }
+
+    const isSkill = resource.category === ResourceCategory.Skills;
+
+    // Placeholder repo — the detail panel will detect missing owner/repo
+    // and adapt accordingly (hide "View Source", show local path).
+    const localRepo: ResourceRepository = {
+        owner: '',
+        repo: '',
+        branch: '',
+        enabled: true,
+    };
+
+    let content: string | undefined;
+    let bodyContent: string | undefined;
+    let fullContent: string | undefined;
+    let description = resource.description;
+    let license: string | undefined;
+    let compatibility: string | undefined;
+
+    try {
+        if (isSkill) {
+            const skillMd = vscode.Uri.joinPath(uri, 'SKILL.md');
+            const raw = new TextDecoder().decode(
+                await vscode.workspace.fs.readFile(skillMd),
+            );
+            fullContent = raw;
+            const fmMatch = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
+            if (fmMatch) {
+                const yaml = fmMatch[1];
+                bodyContent = fmMatch[2];
+                const descMatch = yaml.match(/^description:\s*(.+)$/m);
+                const licenseMatch = yaml.match(/^license:\s*(.+)$/m);
+                const compatMatch = yaml.match(/^compatibility:\s*(.+)$/m);
+                if (descMatch) { description = descMatch[1].trim(); }
+                if (licenseMatch) { license = licenseMatch[1].trim(); }
+                if (compatMatch) { compatibility = compatMatch[1].trim(); }
+            } else {
+                bodyContent = raw;
+            }
+        } else {
+            content = new TextDecoder().decode(
+                await vscode.workspace.fs.readFile(uri),
+            );
+        }
+    } catch {
+        // File unreadable — still create a bare item so panel can render
+    }
+
+    return {
+        id: `local:${resource.category}/${resource.name}`,
+        name: resource.name,
+        category: resource.category,
+        file: {
+            name: resource.name,
+            path: resource.location,
+            download_url: '',
+            size: 0,
+            type: isSkill ? 'dir' : 'file',
+        },
+        repo: localRepo,
+        content,
+        description,
+        license,
+        compatibility,
+        bodyContent,
+        fullContent,
+    };
+}
+
 export function activate(context: vscode.ExtensionContext) {
     console.log('AI Skills Manager extension is now active!');
 
@@ -181,14 +267,16 @@ export function activate(context: vscode.ExtensionContext) {
                 } else if (
                     treeItemOrItem instanceof InstalledResourceTreeItem
                 ) {
+                    // Try marketplace first for richer metadata
                     item = marketplaceProvider.getItemByName(
                         treeItemOrItem.resource.name,
                     );
+                    // Fall back to reading local content from disk
                     if (!item) {
-                        vscode.window.showInformationMessage(
-                            `"${treeItemOrItem.resource.name}" is not in the marketplace.`,
+                        item = await buildResourceItemFromInstalled(
+                            treeItemOrItem.resource,
+                            pathService,
                         );
-                        return;
                     }
                 } else {
                     const data = treeItemOrItem as ResourceItem;
@@ -206,7 +294,7 @@ export function activate(context: vscode.ExtensionContext) {
             },
         ),
 
-        // Install / download
+        // Install / download (local)
         vscode.commands.registerCommand(
             'aiSkillsManager.install',
             async (treeItemOrItem: ResourceTreeItem | ResourceItem) => {
@@ -217,7 +305,68 @@ export function activate(context: vscode.ExtensionContext) {
 
                 if (item) {
                     const success =
-                        await installationService.installResource(item);
+                        await installationService.installResource(item, 'local');
+                    if (success) {
+                        await syncInstalledStatus();
+                    }
+                }
+            },
+        ),
+
+        // Install globally
+        vscode.commands.registerCommand(
+            'aiSkillsManager.installGlobally',
+            async (treeItemOrItem: ResourceTreeItem | ResourceItem) => {
+                const item =
+                    treeItemOrItem instanceof ResourceTreeItem
+                        ? treeItemOrItem.resource
+                        : treeItemOrItem;
+
+                if (item) {
+                    const success =
+                        await installationService.installResource(item, 'global');
+                    if (success) {
+                        await syncInstalledStatus();
+                    }
+                }
+            },
+        ),
+
+        // Move installed resource to global
+        vscode.commands.registerCommand(
+            'aiSkillsManager.moveToGlobal',
+            async (
+                treeItemOrResource: InstalledResourceTreeItem | InstalledResource,
+            ) => {
+                const resource =
+                    treeItemOrResource instanceof InstalledResourceTreeItem
+                        ? treeItemOrResource.resource
+                        : treeItemOrResource;
+
+                if (resource) {
+                    const success =
+                        await installationService.moveResource(resource, 'global');
+                    if (success) {
+                        await syncInstalledStatus();
+                    }
+                }
+            },
+        ),
+
+        // Move installed resource to local
+        vscode.commands.registerCommand(
+            'aiSkillsManager.moveToLocal',
+            async (
+                treeItemOrResource: InstalledResourceTreeItem | InstalledResource,
+            ) => {
+                const resource =
+                    treeItemOrResource instanceof InstalledResourceTreeItem
+                        ? treeItemOrResource.resource
+                        : treeItemOrResource;
+
+                if (resource) {
+                    const success =
+                        await installationService.moveResource(resource, 'local');
                     if (success) {
                         await syncInstalledStatus();
                     }
@@ -480,7 +629,8 @@ export function activate(context: vscode.ExtensionContext) {
             if (e.affectsConfiguration('aiSkillsManager.repositories')) {
                 marketplaceProvider.refresh();
             }
-            if (e.affectsConfiguration('aiSkillsManager.installLocation')) {
+            if (e.affectsConfiguration('aiSkillsManager.installLocation') ||
+                e.affectsConfiguration('aiSkillsManager.globalInstallLocation')) {
                 installedProvider.refresh();
             }
         }),

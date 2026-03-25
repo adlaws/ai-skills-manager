@@ -63,7 +63,7 @@
         "commands": [
             {
                 "command": "aiSkillsManager.install",
-                "title": "Install / Download",
+                "title": "Install Locally",
                 "icon": "$(cloud-download)",
                 "category": "AI Skills Manager"
             },
@@ -119,6 +119,24 @@
                 "title": "Manage Repositories",
                 "icon": "$(settings-gear)",
                 "category": "AI Skills Manager"
+            },
+            {
+                "command": "aiSkillsManager.installGlobally",
+                "title": "Install Globally",
+                "icon": "$(home)",
+                "category": "AI Skills Manager"
+            },
+            {
+                "command": "aiSkillsManager.moveToGlobal",
+                "title": "Move to Global",
+                "icon": "$(home)",
+                "category": "AI Skills Manager"
+            },
+            {
+                "command": "aiSkillsManager.moveToLocal",
+                "title": "Move to Local",
+                "icon": "$(folder)",
+                "category": "AI Skills Manager"
             }
         ],
         "menus": {
@@ -151,19 +169,79 @@
                     "group": "inline@1"
                 },
                 {
-                    "command": "aiSkillsManager.viewDetails",
+                    "command": "aiSkillsManager.installGlobally",
                     "when": "view == aiSkillsManager.marketplace && viewItem == resource",
                     "group": "inline@2"
                 },
                 {
+                    "command": "aiSkillsManager.viewDetails",
+                    "when": "view == aiSkillsManager.marketplace && viewItem == resource",
+                    "group": "inline@3"
+                },
+                {
+                    "command": "aiSkillsManager.install",
+                    "when": "view == aiSkillsManager.marketplace && viewItem == resource",
+                    "group": "navigation@1"
+                },
+                {
+                    "command": "aiSkillsManager.installGlobally",
+                    "when": "view == aiSkillsManager.marketplace && viewItem == resource",
+                    "group": "navigation@2"
+                },
+                {
+                    "command": "aiSkillsManager.viewDetails",
+                    "when": "view == aiSkillsManager.marketplace && viewItem == resource",
+                    "group": "1_details@1"
+                },
+                {
                     "command": "aiSkillsManager.uninstall",
-                    "when": "view == aiSkillsManager.installed && viewItem == installedResource",
+                    "when": "view == aiSkillsManager.installed && (viewItem == installedResourceLocal || viewItem == installedResourceGlobal)",
                     "group": "inline@1"
                 },
                 {
-                    "command": "aiSkillsManager.openResource",
-                    "when": "view == aiSkillsManager.installed && viewItem == installedResource",
+                    "command": "aiSkillsManager.viewDetails",
+                    "when": "view == aiSkillsManager.installed && (viewItem == installedResourceLocal || viewItem == installedResourceGlobal)",
                     "group": "inline@2"
+                },
+                {
+                    "command": "aiSkillsManager.openResource",
+                    "when": "view == aiSkillsManager.installed && (viewItem == installedResourceLocal || viewItem == installedResourceGlobal)",
+                    "group": "inline@3"
+                },
+                {
+                    "command": "aiSkillsManager.moveToGlobal",
+                    "when": "view == aiSkillsManager.installed && viewItem == installedResourceLocal",
+                    "group": "inline@4"
+                },
+                {
+                    "command": "aiSkillsManager.moveToLocal",
+                    "when": "view == aiSkillsManager.installed && viewItem == installedResourceGlobal",
+                    "group": "inline@4"
+                },
+                {
+                    "command": "aiSkillsManager.openResource",
+                    "when": "view == aiSkillsManager.installed && (viewItem == installedResourceLocal || viewItem == installedResourceGlobal)",
+                    "group": "navigation@1"
+                },
+                {
+                    "command": "aiSkillsManager.viewDetails",
+                    "when": "view == aiSkillsManager.installed && (viewItem == installedResourceLocal || viewItem == installedResourceGlobal)",
+                    "group": "navigation@2"
+                },
+                {
+                    "command": "aiSkillsManager.moveToGlobal",
+                    "when": "view == aiSkillsManager.installed && viewItem == installedResourceLocal",
+                    "group": "1_move@1"
+                },
+                {
+                    "command": "aiSkillsManager.moveToLocal",
+                    "when": "view == aiSkillsManager.installed && viewItem == installedResourceGlobal",
+                    "group": "1_move@1"
+                },
+                {
+                    "command": "aiSkillsManager.uninstall",
+                    "when": "view == aiSkillsManager.installed && (viewItem == installedResourceLocal || viewItem == installedResourceGlobal)",
+                    "group": "2_remove@1"
                 }
             ]
         },
@@ -269,6 +347,31 @@
                     "type": "string",
                     "default": ".agents/skills",
                     "description": "Where to install Skills relative to the workspace root, or use '~/' prefix for home directory."
+                },
+                "aiSkillsManager.globalInstallLocation.chatmodes": {
+                    "type": "string",
+                    "default": "~/.agents/chatmodes",
+                    "description": "Where to install Chat Modes globally (home directory). Use '~/' prefix."
+                },
+                "aiSkillsManager.globalInstallLocation.instructions": {
+                    "type": "string",
+                    "default": "~/.agents/instructions",
+                    "description": "Where to install Instructions globally (home directory). Use '~/' prefix."
+                },
+                "aiSkillsManager.globalInstallLocation.prompts": {
+                    "type": "string",
+                    "default": "~/.agents/prompts",
+                    "description": "Where to install Prompts globally (home directory). Use '~/' prefix."
+                },
+                "aiSkillsManager.globalInstallLocation.agents": {
+                    "type": "string",
+                    "default": "~/.agents/agents",
+                    "description": "Where to install Agents globally (home directory). Use '~/' prefix."
+                },
+                "aiSkillsManager.globalInstallLocation.skills": {
+                    "type": "string",
+                    "default": "~/.agents/skills",
+                    "description": "Where to install Skills globally (home directory). Use '~/' prefix."
                 },
                 "aiSkillsManager.githubToken": {
                     "type": "string",

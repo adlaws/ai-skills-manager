@@ -5,6 +5,7 @@ import {
     CATEGORY_LABELS,
     CATEGORY_ICONS,
     DEFAULT_INSTALL_PATHS,
+    DEFAULT_GLOBAL_INSTALL_PATHS,
 } from '../types';
 
 suite('Types & Constants', () => {
@@ -101,6 +102,35 @@ suite('Types & Constants', () => {
             assert.ok(
                 DEFAULT_INSTALL_PATHS[cat].endsWith(cat),
                 `Default path for ${cat} does not end with category slug: ${DEFAULT_INSTALL_PATHS[cat]}`,
+            );
+        }
+    });
+
+    // ── DEFAULT_GLOBAL_INSTALL_PATHS ────────────────────────────
+
+    test('DEFAULT_GLOBAL_INSTALL_PATHS has an entry for every category', () => {
+        for (const cat of ALL_CATEGORIES) {
+            assert.ok(
+                DEFAULT_GLOBAL_INSTALL_PATHS[cat],
+                `Missing global install path for ${cat}`,
+            );
+        }
+    });
+
+    test('DEFAULT_GLOBAL_INSTALL_PATHS all start with ~/.agents/', () => {
+        for (const cat of ALL_CATEGORIES) {
+            assert.ok(
+                DEFAULT_GLOBAL_INSTALL_PATHS[cat].startsWith('~/.agents/'),
+                `Global path for ${cat} does not start with ~/.agents/: ${DEFAULT_GLOBAL_INSTALL_PATHS[cat]}`,
+            );
+        }
+    });
+
+    test('DEFAULT_GLOBAL_INSTALL_PATHS end with the category slug', () => {
+        for (const cat of ALL_CATEGORIES) {
+            assert.ok(
+                DEFAULT_GLOBAL_INSTALL_PATHS[cat].endsWith(cat),
+                `Global path for ${cat} does not end with category slug: ${DEFAULT_GLOBAL_INSTALL_PATHS[cat]}`,
             );
         }
     });
