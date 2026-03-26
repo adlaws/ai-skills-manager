@@ -2,7 +2,7 @@
     "name": "ai-skills-manager",
     "displayName": "AI Skills Manager",
     "description": "One-stop-shop for discovering, installing, and managing AI development resources – Chat Modes, Instructions, Prompts, Agents, and Skills – from GitHub repositories with customizable install locations",
-    "version": "0.1.1",
+    "version": "0.1.3",
     "icon": "resources/logo.png",
     "publisher": "adlaws",
     "engines": {
@@ -29,6 +29,7 @@
     },
     "activationEvents": [
         "onView:aiSkillsManager.marketplace",
+        "onView:aiSkillsManager.local",
         "onView:aiSkillsManager.installed"
     ],
     "main": "./dist/extension.js",
@@ -49,12 +50,20 @@
                     "name": "Marketplace"
                 },
                 {
+                    "id": "aiSkillsManager.local",
+                    "name": "Local Collections"
+                },
+                {
                     "id": "aiSkillsManager.installed",
                     "name": "Installed"
                 }
             ]
         },
         "viewsWelcome": [
+            {
+                "view": "aiSkillsManager.local",
+                "contents": "No local collections configured.\nAdd a local folder path via Settings (`aiSkillsManager.localCollections`)."
+            },
             {
                 "view": "aiSkillsManager.installed",
                 "contents": "No resources installed yet.\n[Browse Marketplace](command:aiSkillsManager.focusMarketplace)"
@@ -63,7 +72,7 @@
         "commands": [
             {
                 "command": "aiSkillsManager.install",
-                "title": "Install Locally",
+                "title": "Install to Workspace",
                 "icon": "$(cloud-download)",
                 "category": "AI Skills Manager"
             },
@@ -133,9 +142,63 @@
                 "category": "AI Skills Manager"
             },
             {
-                "command": "aiSkillsManager.moveToLocal",
-                "title": "Move to Local",
+                "command": "aiSkillsManager.moveToWorkspace",
+                "title": "Move to Workspace",
                 "icon": "$(folder)",
+                "category": "AI Skills Manager"
+            },
+            {
+                "command": "aiSkillsManager.copyToLocalCollection",
+                "title": "Copy to Local Collection",
+                "icon": "$(folder-library)",
+                "category": "AI Skills Manager"
+            },
+            {
+                "command": "aiSkillsManager.localInstall",
+                "title": "Install to Workspace",
+                "icon": "$(cloud-download)",
+                "category": "AI Skills Manager"
+            },
+            {
+                "command": "aiSkillsManager.localInstallGlobally",
+                "title": "Install Globally",
+                "icon": "$(home)",
+                "category": "AI Skills Manager"
+            },
+            {
+                "command": "aiSkillsManager.localSearch",
+                "title": "Search Local Resources",
+                "icon": "$(search)",
+                "category": "AI Skills Manager"
+            },
+            {
+                "command": "aiSkillsManager.localClearSearch",
+                "title": "Clear Local Search",
+                "icon": "$(close)",
+                "category": "AI Skills Manager"
+            },
+            {
+                "command": "aiSkillsManager.manageLocalCollections",
+                "title": "Manage Local Collections",
+                "icon": "$(settings-gear)",
+                "category": "AI Skills Manager"
+            },
+            {
+                "command": "aiSkillsManager.localOpenResource",
+                "title": "Open Resource",
+                "icon": "$(folder-opened)",
+                "category": "AI Skills Manager"
+            },
+            {
+                "command": "aiSkillsManager.localDeleteResource",
+                "title": "Delete from Disk",
+                "icon": "$(trash)",
+                "category": "AI Skills Manager"
+            },
+            {
+                "command": "aiSkillsManager.localDeregisterCollection",
+                "title": "Disconnect Local Collection",
+                "icon": "$(debug-disconnect)",
                 "category": "AI Skills Manager"
             }
         ],
@@ -153,12 +216,27 @@
                 },
                 {
                     "command": "aiSkillsManager.refresh",
-                    "when": "view == aiSkillsManager.marketplace || view == aiSkillsManager.installed",
+                    "when": "view == aiSkillsManager.marketplace || view == aiSkillsManager.local || view == aiSkillsManager.installed",
                     "group": "navigation@2"
                 },
                 {
                     "command": "aiSkillsManager.manageRepositories",
                     "when": "view == aiSkillsManager.marketplace",
+                    "group": "navigation@3"
+                },
+                {
+                    "command": "aiSkillsManager.localSearch",
+                    "when": "view == aiSkillsManager.local",
+                    "group": "navigation@1"
+                },
+                {
+                    "command": "aiSkillsManager.localClearSearch",
+                    "when": "view == aiSkillsManager.local && aiSkillsManager:localSearchActive",
+                    "group": "navigation@1"
+                },
+                {
+                    "command": "aiSkillsManager.manageLocalCollections",
+                    "when": "view == aiSkillsManager.local",
                     "group": "navigation@3"
                 }
             ],
@@ -195,52 +273,112 @@
                 },
                 {
                     "command": "aiSkillsManager.uninstall",
-                    "when": "view == aiSkillsManager.installed && (viewItem == installedResourceLocal || viewItem == installedResourceGlobal)",
+                    "when": "view == aiSkillsManager.installed && (viewItem == installedResourceWorkspace || viewItem == installedResourceGlobal)",
                     "group": "inline@1"
                 },
                 {
                     "command": "aiSkillsManager.viewDetails",
-                    "when": "view == aiSkillsManager.installed && (viewItem == installedResourceLocal || viewItem == installedResourceGlobal)",
+                    "when": "view == aiSkillsManager.installed && (viewItem == installedResourceWorkspace || viewItem == installedResourceGlobal)",
                     "group": "inline@2"
                 },
                 {
                     "command": "aiSkillsManager.openResource",
-                    "when": "view == aiSkillsManager.installed && (viewItem == installedResourceLocal || viewItem == installedResourceGlobal)",
+                    "when": "view == aiSkillsManager.installed && (viewItem == installedResourceWorkspace || viewItem == installedResourceGlobal)",
                     "group": "inline@3"
                 },
                 {
                     "command": "aiSkillsManager.moveToGlobal",
-                    "when": "view == aiSkillsManager.installed && viewItem == installedResourceLocal",
+                    "when": "view == aiSkillsManager.installed && viewItem == installedResourceWorkspace",
                     "group": "inline@4"
                 },
                 {
-                    "command": "aiSkillsManager.moveToLocal",
+                    "command": "aiSkillsManager.moveToWorkspace",
                     "when": "view == aiSkillsManager.installed && viewItem == installedResourceGlobal",
                     "group": "inline@4"
                 },
                 {
                     "command": "aiSkillsManager.openResource",
-                    "when": "view == aiSkillsManager.installed && (viewItem == installedResourceLocal || viewItem == installedResourceGlobal)",
+                    "when": "view == aiSkillsManager.installed && (viewItem == installedResourceWorkspace || viewItem == installedResourceGlobal)",
                     "group": "navigation@1"
                 },
                 {
                     "command": "aiSkillsManager.viewDetails",
-                    "when": "view == aiSkillsManager.installed && (viewItem == installedResourceLocal || viewItem == installedResourceGlobal)",
+                    "when": "view == aiSkillsManager.installed && (viewItem == installedResourceWorkspace || viewItem == installedResourceGlobal)",
                     "group": "navigation@2"
                 },
                 {
                     "command": "aiSkillsManager.moveToGlobal",
-                    "when": "view == aiSkillsManager.installed && viewItem == installedResourceLocal",
+                    "when": "view == aiSkillsManager.installed && viewItem == installedResourceWorkspace",
                     "group": "1_move@1"
                 },
                 {
-                    "command": "aiSkillsManager.moveToLocal",
+                    "command": "aiSkillsManager.moveToWorkspace",
                     "when": "view == aiSkillsManager.installed && viewItem == installedResourceGlobal",
                     "group": "1_move@1"
                 },
                 {
+                    "command": "aiSkillsManager.copyToLocalCollection",
+                    "when": "view == aiSkillsManager.installed && (viewItem == installedResourceWorkspace || viewItem == installedResourceGlobal)",
+                    "group": "1_move@2"
+                },
+                {
                     "command": "aiSkillsManager.uninstall",
-                    "when": "view == aiSkillsManager.installed && (viewItem == installedResourceLocal || viewItem == installedResourceGlobal)",
+                    "when": "view == aiSkillsManager.installed && (viewItem == installedResourceWorkspace || viewItem == installedResourceGlobal)",
+                    "group": "2_remove@1"
+                },
+                {
+                    "command": "aiSkillsManager.localInstall",
+                    "when": "view == aiSkillsManager.local && (viewItem == localResource || viewItem == localInstalledResource)",
+                    "group": "inline@1"
+                },
+                {
+                    "command": "aiSkillsManager.localInstallGlobally",
+                    "when": "view == aiSkillsManager.local && (viewItem == localResource || viewItem == localInstalledResource)",
+                    "group": "inline@2"
+                },
+                {
+                    "command": "aiSkillsManager.viewDetails",
+                    "when": "view == aiSkillsManager.local && (viewItem == localResource || viewItem == localInstalledResource)",
+                    "group": "inline@3"
+                },
+                {
+                    "command": "aiSkillsManager.localOpenResource",
+                    "when": "view == aiSkillsManager.local && (viewItem == localResource || viewItem == localInstalledResource)",
+                    "group": "inline@4"
+                },
+                {
+                    "command": "aiSkillsManager.localInstall",
+                    "when": "view == aiSkillsManager.local && (viewItem == localResource || viewItem == localInstalledResource)",
+                    "group": "navigation@1"
+                },
+                {
+                    "command": "aiSkillsManager.localInstallGlobally",
+                    "when": "view == aiSkillsManager.local && (viewItem == localResource || viewItem == localInstalledResource)",
+                    "group": "navigation@2"
+                },
+                {
+                    "command": "aiSkillsManager.viewDetails",
+                    "when": "view == aiSkillsManager.local && (viewItem == localResource || viewItem == localInstalledResource)",
+                    "group": "1_details@1"
+                },
+                {
+                    "command": "aiSkillsManager.localOpenResource",
+                    "when": "view == aiSkillsManager.local && (viewItem == localResource || viewItem == localInstalledResource)",
+                    "group": "1_details@2"
+                },
+                {
+                    "command": "aiSkillsManager.localDeleteResource",
+                    "when": "view == aiSkillsManager.local && (viewItem == localResource || viewItem == localInstalledResource)",
+                    "group": "2_remove@1"
+                },
+                {
+                    "command": "aiSkillsManager.localDeregisterCollection",
+                    "when": "view == aiSkillsManager.local && (viewItem == localCollection || viewItem == localCollectionMissing)",
+                    "group": "inline@1"
+                },
+                {
+                    "command": "aiSkillsManager.localDeregisterCollection",
+                    "when": "view == aiSkillsManager.local && (viewItem == localCollection || viewItem == localCollectionMissing)",
                     "group": "2_remove@1"
                 }
             ]
@@ -373,6 +511,32 @@
                     "default": "~/.agents/skills",
                     "description": "Where to install Skills globally (home directory). Use '~/' prefix."
                 },
+                "aiSkillsManager.localCollections": {
+                    "type": "array",
+                    "default": [],
+                    "description": "Local folders on disk to browse for AI resources. Each folder should contain category sub-folders (chatmodes, instructions, prompts, agents, skills).",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "path": {
+                                "type": "string",
+                                "description": "Absolute path to the collection folder, or use '~/' for home directory"
+                            },
+                            "label": {
+                                "type": "string",
+                                "description": "Display label for this collection"
+                            },
+                            "enabled": {
+                                "type": "boolean",
+                                "default": true,
+                                "description": "Whether this collection is enabled"
+                            }
+                        },
+                        "required": [
+                            "path"
+                        ]
+                    }
+                },
                 "aiSkillsManager.githubToken": {
                     "type": "string",
                     "default": "",
@@ -383,6 +547,13 @@
                     "type": "number",
                     "default": 3600,
                     "description": "Cache timeout for marketplace data in seconds"
+                },
+                "aiSkillsManager.localCollectionWatchInterval": {
+                    "type": "number",
+                    "default": 30,
+                    "minimum": 5,
+                    "maximum": 300,
+                    "description": "How often (in seconds) to check local collection folders for existence changes. Lower values detect changes faster but use more resources. Minimum: 5, Maximum: 300."
                 }
             }
         }

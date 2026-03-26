@@ -5,8 +5,10 @@
  * Other resources (single files) are downloaded individually.
  */
 
+import * as path from 'path';
+import * as os from 'os';
 import * as vscode from 'vscode';
-import { ResourceItem, InstalledResource, ResourceCategory, InstallScope } from '../types';
+import { ResourceItem, InstalledResource, ResourceCategory, InstallScope, LocalCollection } from '../types';
 import { ResourceClient } from '../github/resourceClient';
 import { PathService } from './pathService';
 
@@ -124,6 +126,150 @@ export class InstallationService {
     }
 
     /**
+     * Install a resource from a local collection (copy from source path to install location).
+     */
+    async installFromLocal(item: ResourceItem, scope: InstallScope = 'local'): Promise<boolean> {
+        const isSkill =
+            item.category === ResourceCategory.Skills &&
+            item.file.type === 'dir';
+
+        const targetUri = this.resolveTarget(item, scope);
+        if (!targetUri) {
+            return false;
+        }
+
+        const sourceUri = vscode.Uri.file(item.file.path);
+
+        if (isSkill) {
+            if (await this.promptOverwriteDir(targetUri, item.name)) {
+                return false;
+            }
+        } else {
+            try {
+                await vscode.workspace.fs.stat(targetUri);
+                const overwrite = await vscode.window.showWarningMessage(
+                    `"${item.name}" already exists. Overwrite?`,
+                    { modal: true },
+                    'Overwrite',
+                );
+                if (overwrite !== 'Overwrite') {
+                    return false;
+                }
+            } catch {
+                // Doesn't exist yet – proceed
+            }
+        }
+
+        try {
+            const parentDir = vscode.Uri.joinPath(targetUri, '..');
+            await vscode.workspace.fs.createDirectory(parentDir);
+            await vscode.workspace.fs.copy(sourceUri, targetUri, {
+                overwrite: true,
+            });
+
+            const scopeLabel = scope === 'global' ? 'globally' : 'to workspace';
+            vscode.window.showInformationMessage(
+                `Installed "${item.name}" ${scopeLabel}`,
+            );
+            return true;
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            vscode.window.showErrorMessage(`Failed to install: ${msg}`);
+            return false;
+        }
+    }
+
+    /**
+     * Copy an installed resource into a local collection's category folder.
+     */
+    async copyToLocalCollection(resource: InstalledResource): Promise<boolean> {
+        const collections = this.getEnabledLocalCollections();
+        if (collections.length === 0) {
+            vscode.window.showWarningMessage(
+                'No local collections configured. Add one via Settings (`aiSkillsManager.localCollections`).',
+            );
+            return false;
+        }
+
+        // Resolve the source URI
+        const sourceWf = this.pathService.getWorkspaceFolderForLocation(resource.location);
+        const sourceUri = this.pathService.resolveLocationToUri(resource.location, sourceWf);
+        if (!sourceUri) {
+            vscode.window.showErrorMessage('Failed to resolve resource location.');
+            return false;
+        }
+
+        // Pick a collection if more than one
+        let collection: LocalCollection;
+        if (collections.length === 1) {
+            collection = collections[0];
+        } else {
+            const pick = await vscode.window.showQuickPick(
+                collections.map((c) => ({
+                    label: c.label || path.basename(c.path),
+                    description: c.path,
+                    collection: c,
+                })),
+                {
+                    placeHolder: 'Select a local collection to copy to',
+                    title: 'Copy to Local Collection',
+                },
+            );
+            if (!pick) {
+                return false;
+            }
+            collection = pick.collection;
+        }
+
+        // Resolve collection root
+        const collectionRoot = this.resolveCollectionPath(collection.path);
+        if (!collectionRoot) {
+            vscode.window.showErrorMessage('Failed to resolve collection path.');
+            return false;
+        }
+
+        // Target: <collection>/<category>/<resourceName>
+        const targetUri = vscode.Uri.joinPath(
+            collectionRoot,
+            resource.category,
+            resource.name,
+        );
+
+        // Check for overwrite
+        try {
+            await vscode.workspace.fs.stat(targetUri);
+            const overwrite = await vscode.window.showWarningMessage(
+                `"${resource.name}" already exists in "${collection.label || path.basename(collection.path)}". Overwrite?`,
+                { modal: true },
+                'Overwrite',
+            );
+            if (overwrite !== 'Overwrite') {
+                return false;
+            }
+            await vscode.workspace.fs.delete(targetUri, { recursive: true });
+        } catch {
+            // Doesn't exist – proceed
+        }
+
+        try {
+            // Ensure category directory exists
+            const categoryDir = vscode.Uri.joinPath(collectionRoot, resource.category);
+            await vscode.workspace.fs.createDirectory(categoryDir);
+
+            await vscode.workspace.fs.copy(sourceUri, targetUri, { overwrite: true });
+
+            vscode.window.showInformationMessage(
+                `Copied "${resource.name}" to ${collection.label || path.basename(collection.path)}`,
+            );
+            return true;
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            vscode.window.showErrorMessage(`Failed to copy: ${msg}`);
+            return false;
+        }
+    }
+
+    /**
      * Move an installed resource between global and local scope.
      */
     async moveResource(
@@ -172,7 +318,7 @@ export class InstallationService {
             return false;
         }
 
-        const scopeLabel = targetScope === 'global' ? 'Global' : 'Local';
+        const scopeLabel = targetScope === 'global' ? 'Global' : 'Workspace';
         const isFolder = resource.category === ResourceCategory.Skills;
 
         try {
@@ -468,5 +614,33 @@ export class InstallationService {
         } catch {
             return false;
         }
+    }
+
+    private getEnabledLocalCollections(): LocalCollection[] {
+        const config = vscode.workspace.getConfiguration('aiSkillsManager');
+        const collections = config.get<LocalCollection[]>('localCollections', []);
+        return collections.filter((c) => c.enabled !== false);
+    }
+
+    private resolveCollectionPath(collectionPath: string): vscode.Uri | undefined {
+        const trimmed = collectionPath.trim();
+        if (!trimmed) {
+            return undefined;
+        }
+        if (trimmed.startsWith('~/') || trimmed.startsWith('~\\')) {
+            const resolved = path.join(
+                os.homedir(),
+                trimmed.slice(1).replace(/^[/\\]+/, ''),
+            );
+            return vscode.Uri.file(resolved);
+        }
+        if (path.isAbsolute(trimmed)) {
+            return vscode.Uri.file(trimmed);
+        }
+        const wf = vscode.workspace.workspaceFolders?.[0];
+        if (!wf) {
+            return undefined;
+        }
+        return vscode.Uri.joinPath(wf.uri, trimmed);
     }
 }

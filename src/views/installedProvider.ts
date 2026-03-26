@@ -36,7 +36,7 @@ export class InstalledResourceTreeItem extends vscode.TreeItem {
     constructor(public readonly resource: InstalledResource) {
         super(resource.name, vscode.TreeItemCollapsibleState.None);
 
-        const scopeLabel = resource.scope === 'global' ? '$(home) Global' : '$(folder) Local';
+        const scopeLabel = resource.scope === 'global' ? '$(home) Global' : '$(folder) Workspace';
         this.description = resource.description
             ? `${resource.description} • ${scopeLabel}`
             : scopeLabel;
@@ -46,7 +46,7 @@ export class InstalledResourceTreeItem extends vscode.TreeItem {
         if (resource.description) {
             this.tooltip.appendMarkdown(`${resource.description}\n\n`);
         }
-        this.tooltip.appendMarkdown(`*Scope: ${resource.scope === 'global' ? 'Global (home directory)' : 'Local (workspace)'}*\n\n`);
+        this.tooltip.appendMarkdown(`*Scope: ${resource.scope === 'global' ? 'Global (home directory)' : 'Workspace'}*\n\n`);
         this.tooltip.appendMarkdown(`*Location: ${resource.location}*`);
 
         this.iconPath =
@@ -56,7 +56,7 @@ export class InstalledResourceTreeItem extends vscode.TreeItem {
 
         this.contextValue = resource.scope === 'global'
             ? 'installedResourceGlobal'
-            : 'installedResourceLocal';
+            : 'installedResourceWorkspace';
 
         this.command = {
             command: 'aiSkillsManager.viewDetails',

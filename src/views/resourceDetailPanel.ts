@@ -94,11 +94,11 @@ export class ResourceDetailPanel {
                         }
                         break;
                     }
-                    case 'moveToLocal': {
+                    case 'moveToWorkspace': {
                         const installed = this._installedProvider.getInstalledByName(this._item.name);
                         if (installed) {
                             await vscode.commands.executeCommand(
-                                'aiSkillsManager.moveToLocal',
+                                'aiSkillsManager.moveToWorkspace',
                                 installed,
                             );
                         }
@@ -198,12 +198,12 @@ export class ResourceDetailPanel {
         const categoryLabel = CATEGORY_LABELS[item.category];
 
         // Resolve install paths for button tooltips
-        const localPath = this._pathService.getInstallLocationForScope(item.category, 'local');
+        const workspacePath = this._pathService.getInstallLocationForScope(item.category, 'local');
         const globalPath = this._pathService.getInstallLocationForScope(item.category, 'global');
-        const localTooltip = `Install to ${localPath}/${item.name}`;
+        const workspaceTooltip = `Install to ${workspacePath}/${item.name}`;
         const globalTooltip = `Install to ${globalPath}/${item.name}`;
         const moveToGlobalTooltip = `Move to ${globalPath}/${item.name}`;
-        const moveToLocalTooltip = `Move to ${localPath}/${item.name}`;
+        const moveToWorkspaceTooltip = `Move to ${workspacePath}/${item.name}`;
 
         // Render body content
         const bodyHtml = isSkill
@@ -238,9 +238,9 @@ export class ResourceDetailPanel {
                 ? `<button class="btn danger" id="uninstallBtn"><span class="icon">🗑️</span> Remove</button>
                    ${installedScope === 'local'
                     ? `<button class="btn secondary" id="moveToGlobalBtn" title="${this._esc(moveToGlobalTooltip)}"><span class="icon">🏠</span> Move to Global</button>`
-                    : `<button class="btn secondary" id="moveToLocalBtn" title="${this._esc(moveToLocalTooltip)}"><span class="icon">📁</span> Move to Local</button>`
+                    : `<button class="btn secondary" id="moveToWorkspaceBtn" title="${this._esc(moveToWorkspaceTooltip)}"><span class="icon">📁</span> Move to Workspace</button>`
                 }`
-                : `<button class="btn primary" id="installBtn" title="${this._esc(localTooltip)}"><span class="icon">⬇️</span> Install Locally</button>
+                : `<button class="btn primary" id="installBtn" title="${this._esc(workspaceTooltip)}"><span class="icon">⬇️</span> Install to Workspace</button>
                    <button class="btn primary" id="installGloballyBtn" title="${this._esc(globalTooltip)}"><span class="icon">🏠</span> Install Globally</button>`
             }
                     ${hasRepo ? '<button class="btn secondary" id="sourceBtn"><span class="icon">📂</span> View Source</button>' : ''}
@@ -284,7 +284,7 @@ export class ResourceDetailPanel {
             function installGlobally(){ vscode.postMessage({ command: 'installGlobally' }); }
             function uninstall()      { vscode.postMessage({ command: 'uninstall' }); }
             function moveToGlobal()   { vscode.postMessage({ command: 'moveToGlobal' }); }
-            function moveToLocal()    { vscode.postMessage({ command: 'moveToLocal' }); }
+            function moveToWorkspace(){ vscode.postMessage({ command: 'moveToWorkspace' }); }
             function openSource()     { vscode.postMessage({ command: 'openExternal', url: sourceUrl }); }
 
             function showTab(tabId) {
@@ -302,8 +302,8 @@ export class ResourceDetailPanel {
             if (ub) ub.addEventListener('click', uninstall);
             var mtg = document.getElementById('moveToGlobalBtn');
             if (mtg) mtg.addEventListener('click', moveToGlobal);
-            var mtl = document.getElementById('moveToLocalBtn');
-            if (mtl) mtl.addEventListener('click', moveToLocal);
+            var mtw = document.getElementById('moveToWorkspaceBtn');
+            if (mtw) mtw.addEventListener('click', moveToWorkspace);
             var sb = document.getElementById('sourceBtn');
             if (sb) sb.addEventListener('click', openSource);
             var sl = document.getElementById('sourceLink');

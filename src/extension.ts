@@ -15,10 +15,15 @@ import {
     InstalledTreeDataProvider,
     InstalledResourceTreeItem,
 } from './views/installedProvider';
+import {
+    LocalTreeDataProvider,
+    LocalResourceTreeItem,
+    LocalCollectionTreeItem,
+} from './views/localProvider';
 import { ResourceDetailPanel } from './views/resourceDetailPanel';
 import { InstallationService } from './services/installationService';
 import { PathService } from './services/pathService';
-import { ResourceItem, InstalledResource, ResourceRepository, ResourceCategory } from './types';
+import { ResourceItem, InstalledResource, ResourceRepository, ResourceCategory, LocalCollection } from './types';
 
 // ── Helpers ─────────────────────────────────────────────────────
 
@@ -127,12 +132,21 @@ export function activate(context: vscode.ExtensionContext) {
         context,
         pathService,
     );
+    const localProvider = new LocalTreeDataProvider(context);
 
     // ── Tree views ──────────────────────────────────────────────
     const marketplaceTreeView = vscode.window.createTreeView(
         'aiSkillsManager.marketplace',
         {
             treeDataProvider: marketplaceProvider,
+            showCollapseAll: true,
+        },
+    );
+
+    const localTreeView = vscode.window.createTreeView(
+        'aiSkillsManager.local',
+        {
+            treeDataProvider: localProvider,
             showCollapseAll: true,
         },
     );
@@ -148,9 +162,9 @@ export function activate(context: vscode.ExtensionContext) {
 
     const syncInstalledStatus = async () => {
         await installedProvider.refresh();
-        marketplaceProvider.setInstalledNames(
-            installedProvider.getInstalledNames(),
-        );
+        const names = installedProvider.getInstalledNames();
+        marketplaceProvider.setInstalledNames(names);
+        localProvider.setInstalledNames(names);
     };
 
     // ── Commands ────────────────────────────────────────────────
@@ -181,6 +195,7 @@ export function activate(context: vscode.ExtensionContext) {
             async () => {
                 await Promise.all([
                     marketplaceProvider.refresh(),
+                    localProvider.refresh(),
                     installedProvider.refresh(),
                 ]);
                 await syncInstalledStatus();
@@ -252,6 +267,7 @@ export function activate(context: vscode.ExtensionContext) {
             async (
                 treeItemOrItem:
                     | ResourceTreeItem
+                    | LocalResourceTreeItem
                     | InstalledResourceTreeItem
                     | ResourceItem
                     | unknown,
@@ -266,12 +282,22 @@ export function activate(context: vscode.ExtensionContext) {
                 if (treeItemOrItem instanceof ResourceTreeItem) {
                     item = treeItemOrItem.resource;
                 } else if (
+                    treeItemOrItem instanceof LocalResourceTreeItem
+                ) {
+                    item = treeItemOrItem.resource;
+                } else if (
                     treeItemOrItem instanceof InstalledResourceTreeItem
                 ) {
                     // Try marketplace first for richer metadata
                     item = marketplaceProvider.getItemByName(
                         treeItemOrItem.resource.name,
                     );
+                    // Then try local collections
+                    if (!item) {
+                        item = localProvider.getItemByName(
+                            treeItemOrItem.resource.name,
+                        );
+                    }
                     // Fall back to reading local content from disk
                     if (!item) {
                         item = await buildResourceItemFromInstalled(
@@ -354,9 +380,9 @@ export function activate(context: vscode.ExtensionContext) {
             },
         ),
 
-        // Move installed resource to local
+        // Move installed resource to workspace
         vscode.commands.registerCommand(
-            'aiSkillsManager.moveToLocal',
+            'aiSkillsManager.moveToWorkspace',
             async (
                 treeItemOrResource: InstalledResourceTreeItem | InstalledResource,
             ) => {
@@ -370,6 +396,27 @@ export function activate(context: vscode.ExtensionContext) {
                         await installationService.moveResource(resource, 'local');
                     if (success) {
                         await syncInstalledStatus();
+                    }
+                }
+            },
+        ),
+
+        // Copy installed resource to a local collection
+        vscode.commands.registerCommand(
+            'aiSkillsManager.copyToLocalCollection',
+            async (
+                treeItemOrResource: InstalledResourceTreeItem | InstalledResource,
+            ) => {
+                const resource =
+                    treeItemOrResource instanceof InstalledResourceTreeItem
+                        ? treeItemOrResource.resource
+                        : treeItemOrResource;
+
+                if (resource) {
+                    const success =
+                        await installationService.copyToLocalCollection(resource);
+                    if (success) {
+                        await localProvider.refresh();
                     }
                 }
             },
@@ -598,12 +645,293 @@ export function activate(context: vscode.ExtensionContext) {
                 }
             },
         ),
+
+        // ── Local collection commands ────────────────────────────
+
+        // Install from local collection (local scope)
+        vscode.commands.registerCommand(
+            'aiSkillsManager.localInstall',
+            async (treeItemOrItem: LocalResourceTreeItem | ResourceItem) => {
+                const item =
+                    treeItemOrItem instanceof LocalResourceTreeItem
+                        ? treeItemOrItem.resource
+                        : treeItemOrItem;
+
+                if (item) {
+                    const success =
+                        await installationService.installFromLocal(item, 'local');
+                    if (success) {
+                        await syncInstalledStatus();
+                    }
+                }
+            },
+        ),
+
+        // Install from local collection (global scope)
+        vscode.commands.registerCommand(
+            'aiSkillsManager.localInstallGlobally',
+            async (treeItemOrItem: LocalResourceTreeItem | ResourceItem) => {
+                const item =
+                    treeItemOrItem instanceof LocalResourceTreeItem
+                        ? treeItemOrItem.resource
+                        : treeItemOrItem;
+
+                if (item) {
+                    const success =
+                        await installationService.installFromLocal(item, 'global');
+                    if (success) {
+                        await syncInstalledStatus();
+                    }
+                }
+            },
+        ),
+
+        // Search local collections
+        vscode.commands.registerCommand(
+            'aiSkillsManager.localSearch',
+            async () => {
+                const query = await vscode.window.showInputBox({
+                    prompt: 'Search local resources',
+                    placeHolder: 'Enter name or keyword…',
+                });
+                if (query !== undefined) {
+                    localProvider.setSearchQuery(query);
+                }
+            },
+        ),
+
+        // Clear local search
+        vscode.commands.registerCommand('aiSkillsManager.localClearSearch', () => {
+            localProvider.clearSearch();
+        }),
+
+        // Open resource from local collection in editor
+        vscode.commands.registerCommand(
+            'aiSkillsManager.localOpenResource',
+            async (treeItem: LocalResourceTreeItem) => {
+                if (!treeItem?.resource) {
+                    return;
+                }
+                const item = treeItem.resource;
+                const fileUri = vscode.Uri.file(item.file.path);
+                try {
+                    const stat = await vscode.workspace.fs.stat(fileUri);
+                    if (stat.type & vscode.FileType.Directory) {
+                        // Open folder in OS file manager
+                        await vscode.env.openExternal(fileUri);
+                    } else {
+                        await vscode.window.showTextDocument(fileUri);
+                    }
+                } catch {
+                    vscode.window.showErrorMessage(
+                        `Could not open: ${item.file.path}`,
+                    );
+                }
+            },
+        ),
+
+        // Delete resource from local collection on disk
+        vscode.commands.registerCommand(
+            'aiSkillsManager.localDeleteResource',
+            async (treeItem: LocalResourceTreeItem) => {
+                if (!treeItem?.resource) {
+                    return;
+                }
+                const item = treeItem.resource;
+                const isSkill =
+                    item.category === ResourceCategory.Skills &&
+                    item.file.type === 'dir';
+
+                const warningMessage = isSkill
+                    ? `Permanently delete skill folder "${item.name}" and all its contents from disk?`
+                    : `Permanently delete file "${item.name}" from disk?`;
+
+                const confirm = await vscode.window.showWarningMessage(
+                    warningMessage,
+                    { modal: true, detail: `This will remove: ${item.file.path}` },
+                    'Delete',
+                );
+
+                if (confirm !== 'Delete') {
+                    return;
+                }
+
+                try {
+                    const fileUri = vscode.Uri.file(item.file.path);
+                    await vscode.workspace.fs.delete(fileUri, {
+                        recursive: isSkill,
+                        useTrash: true,
+                    });
+                    vscode.window.showInformationMessage(
+                        `Deleted "${item.name}" from disk`,
+                    );
+                    await localProvider.refresh();
+                } catch (error) {
+                    const msg =
+                        error instanceof Error ? error.message : String(error);
+                    vscode.window.showErrorMessage(
+                        `Failed to delete: ${msg}`,
+                    );
+                }
+            },
+        ),
+
+        // Manage local collections – quick-pick to toggle, add, or remove
+        vscode.commands.registerCommand(
+            'aiSkillsManager.manageLocalCollections',
+            async () => {
+                const config =
+                    vscode.workspace.getConfiguration('aiSkillsManager');
+                const collections = config.get<LocalCollection[]>(
+                    'localCollections',
+                    [],
+                );
+
+                const pick = await vscode.window.showQuickPick(
+                    [
+                        {
+                            label: '$(add) Add local collection…',
+                            id: '__add__',
+                        },
+                        ...collections.map((c, i) => ({
+                            label: c.label || c.path,
+                            description: c.path,
+                            detail:
+                                c.enabled !== false
+                                    ? '$(check) Enabled'
+                                    : '$(circle-slash) Disabled',
+                            id: String(i),
+                        })),
+                    ],
+                    {
+                        placeHolder:
+                            'Select a collection to toggle or add a new one',
+                        title: 'Manage Local Collections',
+                    },
+                );
+
+                if (!pick) {
+                    return;
+                }
+
+                if (pick.id === '__add__') {
+                    const folderUris = await vscode.window.showOpenDialog({
+                        canSelectFiles: false,
+                        canSelectFolders: true,
+                        canSelectMany: false,
+                        openLabel: 'Select Collection Folder',
+                        title: 'Select a folder containing AI resources',
+                    });
+
+                    if (folderUris && folderUris.length > 0) {
+                        const folderPath = folderUris[0].fsPath;
+                        const label = await vscode.window.showInputBox({
+                            prompt: 'Optional display label for this collection',
+                            placeHolder: 'e.g. My AI Resources',
+                        });
+
+                        collections.push({
+                            path: folderPath,
+                            label: label || undefined,
+                            enabled: true,
+                        });
+                        await config.update(
+                            'localCollections',
+                            collections,
+                            vscode.ConfigurationTarget.Global,
+                        );
+                        vscode.window.showInformationMessage(
+                            `Added local collection: ${folderPath}`,
+                        );
+                        localProvider.refresh();
+                    }
+                } else {
+                    const idx = parseInt(pick.id!);
+                    const collection = collections[idx];
+
+                    const action = await vscode.window.showQuickPick(
+                        [
+                            {
+                                label:
+                                    collection.enabled !== false
+                                        ? 'Disable'
+                                        : 'Enable',
+                                id: 'toggle',
+                            },
+                            { label: 'Remove', id: 'remove' },
+                        ],
+                        { placeHolder: collection.label || collection.path },
+                    );
+
+                    if (action?.id === 'toggle') {
+                        collections[idx] = {
+                            ...collection,
+                            enabled: collection.enabled === false,
+                        };
+                        await config.update(
+                            'localCollections',
+                            collections,
+                            vscode.ConfigurationTarget.Global,
+                        );
+                        localProvider.refresh();
+                    } else if (action?.id === 'remove') {
+                        collections.splice(idx, 1);
+                        await config.update(
+                            'localCollections',
+                            collections,
+                            vscode.ConfigurationTarget.Global,
+                        );
+                        localProvider.refresh();
+                    }
+                }
+            },
+        ),
+
+        // Disconnect (deregister) a local collection without deleting from disk
+        vscode.commands.registerCommand(
+            'aiSkillsManager.localDeregisterCollection',
+            async (treeItem: LocalCollectionTreeItem) => {
+                if (!treeItem?.collection) {
+                    return;
+                }
+                const collection = treeItem.collection;
+                const label = collection.label || collection.path;
+
+                const confirm = await vscode.window.showWarningMessage(
+                    `Disconnect "${label}" from Local Collections?`,
+                    {
+                        modal: true,
+                        detail: 'This only removes the collection from your configuration. The folder and its contents will NOT be deleted from disk.',
+                    },
+                    'Disconnect',
+                );
+
+                if (confirm !== 'Disconnect') {
+                    return;
+                }
+
+                const config = vscode.workspace.getConfiguration('aiSkillsManager');
+                const collections = config.get<LocalCollection[]>('localCollections', []);
+                const updated = collections.filter((c) => c.path !== collection.path);
+                await config.update(
+                    'localCollections',
+                    updated,
+                    vscode.ConfigurationTarget.Global,
+                );
+                vscode.window.showInformationMessage(
+                    `Disconnected "${label}". The folder remains on disk at: ${collection.path}`,
+                );
+                localProvider.refresh();
+            },
+        ),
     ];
 
     context.subscriptions.push(
         ...commands,
         marketplaceTreeView,
+        localTreeView,
         installedTreeView,
+        localProvider,
     );
 
     // ── File-system watchers ────────────────────────────────────
@@ -630,6 +958,10 @@ export function activate(context: vscode.ExtensionContext) {
             if (e.affectsConfiguration('aiSkillsManager.repositories')) {
                 marketplaceProvider.refresh();
             }
+            if (e.affectsConfiguration('aiSkillsManager.localCollections') ||
+                e.affectsConfiguration('aiSkillsManager.localCollectionWatchInterval')) {
+                localProvider.refresh();
+            }
             if (e.affectsConfiguration('aiSkillsManager.installLocation') ||
                 e.affectsConfiguration('aiSkillsManager.globalInstallLocation')) {
                 installedProvider.refresh();
@@ -641,10 +973,11 @@ export function activate(context: vscode.ExtensionContext) {
     Promise.all([
         installedProvider.refresh(),
         marketplaceProvider.loadResources(),
+        localProvider.loadResources(),
     ]).then(() => {
-        marketplaceProvider.setInstalledNames(
-            installedProvider.getInstalledNames(),
-        );
+        const names = installedProvider.getInstalledNames();
+        marketplaceProvider.setInstalledNames(names);
+        localProvider.setInstalledNames(names);
     });
 }
 

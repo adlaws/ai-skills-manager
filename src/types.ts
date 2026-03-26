@@ -57,6 +57,27 @@ export const DEFAULT_GLOBAL_INSTALL_PATHS: Record<ResourceCategory, string> = {
 
 export type InstallScope = 'local' | 'global';
 
+// ── Local collection configuration ──────────────────────────────
+
+/**
+ * A local folder on disk that contains resources in the standard structure:
+ *
+ *   <path>/
+ *     chatmodes/
+ *     instructions/
+ *     prompts/
+ *     agents/
+ *     skills/<skill-name>/SKILL.md
+ */
+export interface LocalCollection {
+    /** Absolute path to the collection root folder. */
+    path: string;
+    /** Optional display label. */
+    label?: string;
+    /** Whether this collection is enabled (default true). */
+    enabled: boolean;
+}
+
 // ── Repository configuration ────────────────────────────────────
 
 /**

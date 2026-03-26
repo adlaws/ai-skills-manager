@@ -108,15 +108,15 @@ suite('InstalledTreeDataProvider', () => {
                 'Description should include resource description',
             );
             assert.ok(
-                (item.description as string).includes('Local'),
+                (item.description as string).includes('Workspace'),
                 'Description should include scope label',
             );
         });
 
-        test('contextValue is "installedResourceLocal" for local scope', () => {
+        test('contextValue is "installedResourceWorkspace" for local scope', () => {
             const resource = makeInstalledResource({ scope: 'local' });
             const item = new InstalledResourceTreeItem(resource);
-            assert.strictEqual(item.contextValue, 'installedResourceLocal');
+            assert.strictEqual(item.contextValue, 'installedResourceWorkspace');
         });
 
         test('contextValue is "installedResourceGlobal" for global scope', () => {

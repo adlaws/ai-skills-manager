@@ -50,9 +50,10 @@ ai-skills-manager/
     │   └── resourceClient.ts         # GitHub API client (Contents + Trees APIs)
     ├── services/
     │   ├── pathService.ts            # Install / scan location resolution
-    │   └── installationService.ts    # Install, uninstall, open resources
+    │   └── installationService.ts    # Install, uninstall, copy, open resources
     ├── views/
-    │   ├── marketplaceProvider.ts     # Marketplace tree (Repo → Category → Item)
+    │   ├── marketplaceProvider.ts    # Marketplace tree (Repo → Category → Item)
+    │   ├── localProvider.ts          # Local Collections tree (Collection → Category → Item)
     │   ├── installedProvider.ts       # Installed tree (Category → Item)
     │   └── resourceDetailPanel.ts     # Webview detail panel (markdown preview)
     └── test/
@@ -67,14 +68,15 @@ ai-skills-manager/
 
 | Module | Responsibility |
 |---|---|
-| `types.ts` | `ResourceCategory` enum (5 categories), label/icon/default-path lookup maps, `DEFAULT_GLOBAL_INSTALL_PATHS`, `InstallScope` type, all shared interfaces (`ResourceItem`, `InstalledResource`, `ResourceRepository`, etc.) |
+| `types.ts` | `ResourceCategory` enum (5 categories), label/icon/default-path lookup maps, `DEFAULT_GLOBAL_INSTALL_PATHS`, `InstallScope` type, `LocalCollection` interface, all shared interfaces (`ResourceItem`, `InstalledResource`, `ResourceRepository`, etc.) |
 | `github/resourceClient.ts` | Fetches resources from GitHub. **Full repos** use the Contents API to list category folders. **Skills repos** (`skillsPath` set) use the Git Trees API for recursive scanning. Raw content is fetched from `raw.githubusercontent.com`. All responses are cached in memory with a configurable TTL. |
 | `services/pathService.ts` | Resolves per-category install and scan locations, for both local (workspace) and global (home directory) scopes. Paths starting with `~/` resolve to the home directory; all others resolve relative to the first workspace folder. |
-| `services/installationService.ts` | Handles the download-and-write flow. Skills (folders) are fetched file-by-file and written recursively. Other resources are single-file downloads. Supports local and global install scopes, moving resources between scopes, overwrite prompts, and cancellation. |
+| `services/installationService.ts` | Handles the download-and-write flow. Skills (folders) are fetched file-by-file and written recursively. Other resources are single-file downloads. Supports local and global install scopes, moving resources between scopes, copying resources to local collections, overwrite prompts, and cancellation. |
 | `views/marketplaceProvider.ts` | Three-level `TreeDataProvider` (Repo → Category → Resource). Supports search filtering and tracks which items are already installed. |
-| `views/installedProvider.ts` | Two-level `TreeDataProvider` (Category → Installed Resource). Scans configured + well-known directories on disk (both local and global). Skills are recognised by the presence of `SKILL.md`. Each item shows its scope (Global/Local) and uses scope-specific context values for menu control. |
-| `views/resourceDetailPanel.ts` | Webview panel that renders resource details with `markdown-it`. Shows metadata, install/remove buttons, and a "View Source" link. Also supports viewing details for installed resources by reading content from disk when the item isn't in the marketplace. Auto-refreshes install status when the panel becomes visible. |
-| `extension.ts` | Wires everything together — creates service instances, registers commands, sets up file watchers, and subscribes to configuration changes. |
+| `views/localProvider.ts` | Three-level `TreeDataProvider` (Collection → Category → Resource). Scans configured local collection folders on disk for the standard category structure. Supports search filtering and tracks which items are already installed. |
+| `views/installedProvider.ts` | Two-level `TreeDataProvider` (Category → Installed Resource). Scans configured + well-known directories on disk (both local and global). Skills are recognised by the presence of `SKILL.md`. Each item shows its scope (Global/Workspace) and uses scope-specific context values for menu control. |
+| `views/resourceDetailPanel.ts` | Webview panel that renders resource details with `markdown-it`. Shows metadata, install/remove buttons, and a "View Source" link. Also supports viewing details for installed and local collection resources by reading content from disk. Auto-refreshes install status when the panel becomes visible. |
+| `extension.ts` | Wires everything together — creates service instances, registers commands (including local collection management), sets up file watchers, and subscribes to configuration changes. |
 
 ### Build outputs
 
@@ -358,6 +360,7 @@ These settings affect the extension at runtime. During development in the Extens
 | `aiSkillsManager.globalInstallLocation.prompts` | string | `~/.agents/prompts` | Global Prompts install path |
 | `aiSkillsManager.globalInstallLocation.agents` | string | `~/.agents/agents` | Global Agents install path |
 | `aiSkillsManager.globalInstallLocation.skills` | string | `~/.agents/skills` | Global Skills install path |
+| `aiSkillsManager.localCollections` | array | `[]` | Local folders to browse for AI resources |
 | `aiSkillsManager.githubToken` | string | `""` | GitHub PAT for higher rate limits |
 | `aiSkillsManager.cacheTimeout` | number | `3600` | Cache TTL in seconds |
 
