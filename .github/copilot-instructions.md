@@ -4,19 +4,24 @@
 - The extension is a one-stop-shop for discovering, installing, and managing AI development resources: Chat Modes, Instructions, Prompts, Agents, and Skills.
 - Resources are categorised by `ResourceCategory` enum: `chatmodes`, `instructions`, `prompts`, `agents`, `skills`.
 - Two repository modes: "Full repo" (scans category folders) and "Skills repo" (uses `skillsPath` for Git Trees API).
-- Key architecture: Activity Bar view container with two tree views (Marketplace, Installed), plus detail webview panels.
+- Key architecture: Activity Bar view container with three tree views (Marketplace, Local Collections, Installed), plus detail webview panels.
 - Marketplace tree: Repo → Category → Resource items (three levels).
+- Local Collections tree: Collection → Category → Resource items (three levels). Configured via `aiSkillsManager.localCollections`.
 - Installed tree: Category → Installed resources (two levels).
 - Source files are under `src/`, with sub-folders `github/`, `services/`, and `views/`.
-- Key files: `types.ts`, `github/resourceClient.ts`, `services/pathService.ts`, `services/installationService.ts`, `views/marketplaceProvider.ts`, `views/installedProvider.ts`, `views/resourceDetailPanel.ts`, `extension.ts`.
+- Key files: `types.ts`, `github/resourceClient.ts`, `services/pathService.ts`, `services/installationService.ts`, `views/marketplaceProvider.ts`, `views/localProvider.ts`, `views/installedProvider.ts`, `views/resourceDetailPanel.ts`, `extension.ts`.
 - Run `npm run watch` for development, press F5 to launch Extension Development Host.
 - Configuration prefix is `aiSkillsManager.*` (not `agentSkills.*`).
 - Each resource category has its own local install location setting (`aiSkillsManager.installLocation.<category>`), defaulting to `.agents/<category>/`.
 - Each resource category also has a global install location setting (`aiSkillsManager.globalInstallLocation.<category>`), defaulting to `~/.agents/<category>/`.
 - Resources have an `InstallScope` (`'local' | 'global'`). The `InstalledResource` interface includes a `scope` field.
 - Install location settings are free-form strings, not enums. Paths starting with `~/` resolve to home directory.
-- Installed tree items use scope-specific `contextValue`: `installedResourceLocal` or `installedResourceGlobal`.
-- Resources can be moved between local and global scopes via `moveToGlobal` / `moveToLocal` commands.
-- All actions are available via both inline icon buttons and right-click context menus in both Marketplace and Installed trees.
+- Installed tree items use scope-specific `contextValue`: `installedResourceWorkspace` or `installedResourceGlobal`.
+- Resources can be moved between workspace and global scopes via `moveToGlobal` / `moveToWorkspace` commands.
+- Installed resources can be copied to local collections via the `copyToLocalCollection` command.
+- Local collection resources can be deleted from disk via the `localDeleteResource` command (with confirmation).
+- All actions are available via both inline icon buttons and right-click context menus in Marketplace, Local Collections, and Installed trees.
 - The `viewDetails` command works for both marketplace and installed items; for installed items not in the marketplace it reads content from disk.
 - Repositories use `aiSkillsManager.repositories` (not `skillRepositories`) and have an `enabled` boolean flag for toggling.
+- Local collection folders are checked for existence on startup/refresh. Missing folders show a warning icon with `list.errorForeground` colour and `contextValue` `localCollectionMissing`. The Disconnect command works on both `localCollection` and `localCollectionMissing` context values.
+- `LocalTreeDataProvider` implements `vscode.Disposable` and is added to `context.subscriptions`. It manages Node.js `fs.watch` watchers (recursive) for live collection directories, plus a configurable interval (`aiSkillsManager.localCollectionWatchInterval`, default 30 s, min 5 s, max 300 s) that detects newly created or deleted folders. Watcher events are debounced (1 s) before triggering a refresh.
