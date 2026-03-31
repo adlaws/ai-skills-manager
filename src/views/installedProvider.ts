@@ -12,6 +12,7 @@ import {
     ALL_CATEGORIES,
     CATEGORY_LABELS,
     CATEGORY_ICONS,
+    InstallMetadata,
 } from '../types';
 import { PathService } from '../services/pathService';
 
@@ -21,25 +22,32 @@ export class InstalledCategoryTreeItem extends vscode.TreeItem {
     constructor(
         public readonly category: ResourceCategory,
         public readonly resources: InstalledResource[],
+        public readonly updateCount: number = 0,
     ) {
         super(
             CATEGORY_LABELS[category],
             vscode.TreeItemCollapsibleState.Expanded,
         );
         this.iconPath = new vscode.ThemeIcon(CATEGORY_ICONS[category]);
-        this.description = `${resources.length}`;
+        this.description = updateCount > 0
+            ? `${resources.length} (${updateCount} update${updateCount > 1 ? 's' : ''})`
+            : `${resources.length}`;
         this.contextValue = 'installedCategory';
     }
 }
 
 export class InstalledResourceTreeItem extends vscode.TreeItem {
-    constructor(public readonly resource: InstalledResource) {
+    constructor(
+        public readonly resource: InstalledResource,
+        public readonly hasUpdate: boolean = false,
+    ) {
         super(resource.name, vscode.TreeItemCollapsibleState.None);
 
         const scopeLabel = resource.scope === 'global' ? '$(home) Global' : '$(folder) Workspace';
+        const updateLabel = hasUpdate ? ' $(cloud-download) Update available' : '';
         this.description = resource.description
-            ? `${resource.description} • ${scopeLabel}`
-            : scopeLabel;
+            ? `${resource.description} • ${scopeLabel}${updateLabel}`
+            : `${scopeLabel}${updateLabel}`;
 
         this.tooltip = new vscode.MarkdownString();
         this.tooltip.appendMarkdown(`**${resource.name}**\n\n`);
@@ -48,15 +56,23 @@ export class InstalledResourceTreeItem extends vscode.TreeItem {
         }
         this.tooltip.appendMarkdown(`*Scope: ${resource.scope === 'global' ? 'Global (home directory)' : 'Workspace'}*\n\n`);
         this.tooltip.appendMarkdown(`*Location: ${resource.location}*`);
+        if (hasUpdate) {
+            this.tooltip.appendMarkdown(`\n\n$(cloud-download) **Update available** — a newer version exists in the source repository`);
+        }
+        this.tooltip.supportThemeIcons = true;
 
         this.iconPath =
             resource.category === ResourceCategory.Skills
                 ? new vscode.ThemeIcon('folder')
                 : new vscode.ThemeIcon(CATEGORY_ICONS[resource.category]);
 
-        this.contextValue = resource.scope === 'global'
+        // Encode update status in context value for menu visibility
+        const baseContext = resource.scope === 'global'
             ? 'installedResourceGlobal'
             : 'installedResourceWorkspace';
+        this.contextValue = hasUpdate
+            ? `${baseContext}Updatable`
+            : baseContext;
 
         this.command = {
             command: 'aiSkillsManager.viewDetails',
@@ -79,6 +95,10 @@ export class InstalledTreeDataProvider
 
     private installedResources: InstalledResource[] = [];
     private readonly pathService: PathService;
+    /** Map of resource name → install metadata (for update detection). */
+    private installMetadata = new Map<string, InstallMetadata[string]>();
+    /** Set of resource names that have updates available. */
+    private updatableNames = new Set<string>();
 
     constructor(
         private readonly _context: vscode.ExtensionContext,
@@ -116,6 +136,37 @@ export class InstalledTreeDataProvider
         return this.installedResources.find((r) => r.name === name);
     }
 
+    /** Get install metadata for a resource. */
+    getMetadata(name: string): InstallMetadata[string] | undefined {
+        return this.installMetadata.get(name);
+    }
+
+    /** Set the names of resources that have updates available. */
+    setUpdatableNames(names: Set<string>): void {
+        this.updatableNames = names;
+        this._onDidChangeTreeData.fire();
+    }
+
+    /** Get the set of resource names that have updates available. */
+    getUpdatableNames(): Set<string> {
+        return this.updatableNames;
+    }
+
+    /** Check if a resource has an update available. */
+    hasUpdate(name: string): boolean {
+        return this.updatableNames.has(name);
+    }
+
+    /** Get the count of resources with updates available. */
+    getUpdatableCount(): number {
+        return this.updatableNames.size;
+    }
+
+    /** Store loaded metadata for use by other components. */
+    setInstallMetadata(metadata: Map<string, InstallMetadata[string]>): void {
+        this.installMetadata = metadata;
+    }
+
     // ── TreeDataProvider ────────────────────────────────────────
 
     getTreeItem(element: InstalledItem): vscode.TreeItem {
@@ -127,7 +178,7 @@ export class InstalledTreeDataProvider
     ): vscode.ProviderResult<InstalledItem[]> {
         if (element instanceof InstalledCategoryTreeItem) {
             return element.resources.map(
-                (r) => new InstalledResourceTreeItem(r),
+                (r) => new InstalledResourceTreeItem(r, this.updatableNames.has(r.name)),
             );
         }
 
@@ -148,8 +199,11 @@ export class InstalledTreeDataProvider
         }
 
         return ALL_CATEGORIES.filter((cat) => byCategory.has(cat)).map(
-            (cat) =>
-                new InstalledCategoryTreeItem(cat, byCategory.get(cat)!),
+            (cat) => {
+                const resources = byCategory.get(cat)!;
+                const updateCount = resources.filter((r) => this.updatableNames.has(r.name)).length;
+                return new InstalledCategoryTreeItem(cat, resources, updateCount);
+            },
         );
     }
 
@@ -183,6 +237,10 @@ export class InstalledTreeDataProvider
                     const entries = await fs.readDirectory(dir);
 
                     for (const [name, type] of entries) {
+                        // Skip metadata files
+                        if (name.startsWith('.')) {
+                            continue;
+                        }
                         if (category === ResourceCategory.Skills) {
                             // Skills are folders with SKILL.md
                             if (!(type & vscode.FileType.Directory)) {

@@ -22,6 +22,7 @@ export class ResourceTreeItem extends vscode.TreeItem {
     constructor(
         public readonly resource: ResourceItem,
         public readonly isInstalled: boolean = false,
+        public readonly isFavorite: boolean = false,
     ) {
         super(resource.name, vscode.TreeItemCollapsibleState.None);
 
@@ -49,7 +50,13 @@ export class ResourceTreeItem extends vscode.TreeItem {
             ? new vscode.ThemeIcon('folder')
             : new vscode.ThemeIcon(CATEGORY_ICONS[resource.category]);
 
-        this.contextValue = isInstalled ? 'installedResource' : 'resource';
+        if (isFavorite) {
+            this.contextValue = 'favoriteResource';
+        } else if (isInstalled) {
+            this.contextValue = 'installedResource';
+        } else {
+            this.contextValue = 'resource';
+        }
 
         // Click to preview
         this.command = {
@@ -100,9 +107,23 @@ export class RepoTreeItem extends vscode.TreeItem {
     }
 }
 
+export class FavoritesTreeItem extends vscode.TreeItem {
+    constructor(public readonly favoriteCount: number) {
+        super(
+            'Favorites',
+            favoriteCount > 0
+                ? vscode.TreeItemCollapsibleState.Expanded
+                : vscode.TreeItemCollapsibleState.Collapsed,
+        );
+        this.iconPath = new vscode.ThemeIcon('star-full');
+        this.description = `${favoriteCount}`;
+        this.contextValue = 'favorites';
+    }
+}
+
 // ── Provider ────────────────────────────────────────────────────
 
-type MarketplaceItem = RepoTreeItem | CategoryTreeItem | ResourceTreeItem;
+type MarketplaceItem = FavoritesTreeItem | RepoTreeItem | CategoryTreeItem | ResourceTreeItem;
 
 export class MarketplaceTreeDataProvider
     implements vscode.TreeDataProvider<MarketplaceItem> {
@@ -117,9 +138,11 @@ export class MarketplaceTreeDataProvider
         Map<ResourceCategory, ResourceItem[]>
     >();
     private searchQuery = '';
+    private tagFilter = '';
     private installedNames = new Set<string>();
     private isLoading = false;
     private failedRepos = new Set<string>();
+    private static readonly FAVORITES_KEY = 'aiSkillsManager.favorites';
 
     constructor(
         private readonly client: ResourceClient,
@@ -182,6 +205,37 @@ export class MarketplaceTreeDataProvider
         return this.searchQuery.length > 0;
     }
 
+    setTagFilter(tag: string): void {
+        this.tagFilter = tag.toLowerCase();
+        this._onDidChangeTreeData.fire();
+        this.updateTagFilterContext();
+    }
+
+    clearTagFilter(): void {
+        this.tagFilter = '';
+        this._onDidChangeTreeData.fire();
+        this.updateTagFilterContext();
+    }
+
+    isTagFilterActive(): boolean {
+        return this.tagFilter.length > 0;
+    }
+
+    /**
+     * Collect all unique tags from all loaded resources.
+     */
+    getAllTags(): string[] {
+        const tagSet = new Set<string>();
+        for (const item of this.getAllItems()) {
+            if (item.tags) {
+                for (const tag of item.tags) {
+                    tagSet.add(tag.toLowerCase());
+                }
+            }
+        }
+        return [...tagSet].sort();
+    }
+
     setInstalledNames(names: Set<string>): void {
         this.installedNames = names;
         this._onDidChangeTreeData.fire();
@@ -201,6 +255,49 @@ export class MarketplaceTreeDataProvider
         return this.getAllItems().find((i) => i.name === name);
     }
 
+    // ── Favorites ───────────────────────────────────────────────
+
+    getFavoriteIds(): Set<string> {
+        const raw = this._context.globalState.get<string[]>(
+            MarketplaceTreeDataProvider.FAVORITES_KEY,
+            [],
+        );
+        return new Set(raw);
+    }
+
+    isFavorite(itemId: string): boolean {
+        return this.getFavoriteIds().has(itemId);
+    }
+
+    async toggleFavorite(itemId: string): Promise<void> {
+        const favorites = this.getFavoriteIds();
+        if (favorites.has(itemId)) {
+            favorites.delete(itemId);
+        } else {
+            favorites.add(itemId);
+        }
+        await this._context.globalState.update(
+            MarketplaceTreeDataProvider.FAVORITES_KEY,
+            [...favorites],
+        );
+        this._onDidChangeTreeData.fire();
+    }
+
+    async removeFavorite(itemId: string): Promise<void> {
+        const favorites = this.getFavoriteIds();
+        favorites.delete(itemId);
+        await this._context.globalState.update(
+            MarketplaceTreeDataProvider.FAVORITES_KEY,
+            [...favorites],
+        );
+        this._onDidChangeTreeData.fire();
+    }
+
+    getFavoriteItems(): ResourceItem[] {
+        const favoriteIds = this.getFavoriteIds();
+        return this.getAllItems().filter((item) => favoriteIds.has(item.id));
+    }
+
     // ── TreeDataProvider implementation ─────────────────────────
 
     getTreeItem(element: MarketplaceItem): vscode.TreeItem {
@@ -215,7 +312,7 @@ export class MarketplaceTreeDataProvider
         }
 
         if (!element) {
-            // Root level: repositories
+            // Root level: favorites (if any) + repositories
             if (this.repoData.size === 0) {
                 return [
                     this.createMessageItem(
@@ -224,12 +321,21 @@ export class MarketplaceTreeDataProvider
                 ];
             }
 
+            const children: MarketplaceItem[] = [];
+
+            // Show Favorites section if there are any
+            const favoriteItems = this.getFavoriteItems();
+            const filteredFavorites = this.filterItems(favoriteItems);
+            if (filteredFavorites.length > 0) {
+                children.push(new FavoritesTreeItem(filteredFavorites.length));
+            }
+
             const config =
                 vscode.workspace.getConfiguration('aiSkillsManager');
             const repos = config.get<ResourceRepository[]>('repositories', []);
             const enabledRepos = repos.filter((r) => r.enabled !== false);
 
-            const children = enabledRepos
+            const repoChildren = enabledRepos
                 .filter((repo) =>
                     this.repoData.has(`${repo.owner}/${repo.repo}`),
                 )
@@ -240,6 +346,8 @@ export class MarketplaceTreeDataProvider
                     return new RepoTreeItem(repo, data.size);
                 });
 
+            children.push(...repoChildren);
+
             if (this.failedRepos.size > 0) {
                 for (const repoKey of this.failedRepos) {
                     const failedItem = new vscode.TreeItem(
@@ -249,13 +357,26 @@ export class MarketplaceTreeDataProvider
                     failedItem.iconPath = new vscode.ThemeIcon('warning');
                     failedItem.tooltip = `Failed to fetch resources from ${repoKey}. This is usually caused by GitHub API rate limiting. Try signing in to GitHub or setting a personal access token.`;
                     failedItem.contextValue = 'failedRepo';
-                    children.push(failedItem as unknown as RepoTreeItem);
+                    children.push(failedItem as unknown as MarketplaceItem);
                 }
             }
 
             return children.length > 0
                 ? children
                 : [this.createMessageItem('No resources found.')];
+        }
+
+        if (element instanceof FavoritesTreeItem) {
+            // Favorites children: flat list of favorited resources
+            const favoriteItems = this.getFavoriteItems();
+            return this.filterItems(favoriteItems).map(
+                (item) =>
+                    new ResourceTreeItem(
+                        item,
+                        this.installedNames.has(item.name),
+                        true, // isFavorite
+                    ),
+            );
         }
 
         if (element instanceof RepoTreeItem) {
@@ -295,15 +416,27 @@ export class MarketplaceTreeDataProvider
     // ── Private helpers ─────────────────────────────────────────
 
     private filterItems(items: ResourceItem[]): ResourceItem[] {
-        if (!this.searchQuery) {
-            return items;
+        let filtered = items;
+
+        // Apply text search
+        if (this.searchQuery) {
+            filtered = filtered.filter(
+                (item) =>
+                    item.name.toLowerCase().includes(this.searchQuery) ||
+                    (item.description?.toLowerCase().includes(this.searchQuery) ??
+                        false),
+            );
         }
-        return items.filter(
-            (item) =>
-                item.name.toLowerCase().includes(this.searchQuery) ||
-                (item.description?.toLowerCase().includes(this.searchQuery) ??
-                    false),
-        );
+
+        // Apply tag filter
+        if (this.tagFilter) {
+            filtered = filtered.filter(
+                (item) =>
+                    item.tags?.some((t) => t.toLowerCase() === this.tagFilter) ?? false,
+            );
+        }
+
+        return filtered;
     }
 
     private updateSearchContext(): void {
@@ -311,6 +444,14 @@ export class MarketplaceTreeDataProvider
             'setContext',
             'aiSkillsManager:searchActive',
             this.isSearchActive(),
+        );
+    }
+
+    private updateTagFilterContext(): void {
+        vscode.commands.executeCommand(
+            'setContext',
+            'aiSkillsManager:tagFilterActive',
+            this.isTagFilterActive(),
         );
     }
 

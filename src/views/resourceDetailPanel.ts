@@ -104,6 +104,16 @@ export class ResourceDetailPanel {
                         }
                         break;
                     }
+                    case 'updateResource': {
+                        const installed = this._installedProvider.getInstalledByName(this._item.name);
+                        if (installed) {
+                            await vscode.commands.executeCommand(
+                                'aiSkillsManager.updateResource',
+                                installed,
+                            );
+                        }
+                        break;
+                    }
                     case 'openExternal':
                         if (message.url) {
                             vscode.env.openExternal(
@@ -194,6 +204,7 @@ export class ResourceDetailPanel {
             ? this._installedProvider.getInstalledByName(item.name)
             : undefined;
         const installedScope = installedResource?.scope;
+        const hasUpdate = this._installedProvider.hasUpdate(item.name);
         const nonce = this._getNonce();
         const categoryLabel = CATEGORY_LABELS[item.category];
 
@@ -232,10 +243,12 @@ export class ResourceDetailPanel {
                     ${item.license ? `<span class="badge license">📄 ${this._esc(item.license)}</span>` : ''}
                     ${item.compatibility ? `<span class="badge compat">🔧 ${this._esc(item.compatibility)}</span>` : ''}
                     ${isInstalled ? '<span class="badge installed">✓ Installed</span>' : ''}
+                    ${hasUpdate ? '<span class="badge update">⬆ Update available</span>' : ''}
                 </div>
                 <div class="actions">
                     ${isInstalled
-                ? `<button class="btn danger" id="uninstallBtn"><span class="icon">🗑️</span> Remove</button>
+                ? `${hasUpdate ? '<button class="btn primary" id="updateBtn"><span class="icon">⬆️</span> Update</button>' : ''}
+                   <button class="btn danger" id="uninstallBtn"><span class="icon">🗑️</span> Remove</button>
                    ${installedScope === 'local'
                     ? `<button class="btn secondary" id="moveToGlobalBtn" title="${this._esc(moveToGlobalTooltip)}"><span class="icon">🏠</span> Move to Global</button>`
                     : `<button class="btn secondary" id="moveToWorkspaceBtn" title="${this._esc(moveToWorkspaceTooltip)}"><span class="icon">📁</span> Move to Workspace</button>`
@@ -285,6 +298,7 @@ export class ResourceDetailPanel {
             function uninstall()      { vscode.postMessage({ command: 'uninstall' }); }
             function moveToGlobal()   { vscode.postMessage({ command: 'moveToGlobal' }); }
             function moveToWorkspace(){ vscode.postMessage({ command: 'moveToWorkspace' }); }
+            function updateResource() { vscode.postMessage({ command: 'updateResource' }); }
             function openSource()     { vscode.postMessage({ command: 'openExternal', url: sourceUrl }); }
 
             function showTab(tabId) {
@@ -304,6 +318,8 @@ export class ResourceDetailPanel {
             if (mtg) mtg.addEventListener('click', moveToGlobal);
             var mtw = document.getElementById('moveToWorkspaceBtn');
             if (mtw) mtw.addEventListener('click', moveToWorkspace);
+            var upb = document.getElementById('updateBtn');
+            if (upb) upb.addEventListener('click', updateResource);
             var sb = document.getElementById('sourceBtn');
             if (sb) sb.addEventListener('click', openSource);
             var sl = document.getElementById('sourceLink');
@@ -368,6 +384,7 @@ h3 { font-size: 1.1em; margin: 16px 0 8px 0; }
 .meta { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
 .badge { display: inline-block; padding: 4px 10px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); border-radius: 4px; font-size: 0.85em; }
 .badge.installed { background: var(--vscode-diffEditor-insertedTextBackground); }
+.badge.update { background: var(--vscode-editorWarning-foreground); color: var(--vscode-editor-background); }
 .actions { display: flex; gap: 8px; }
 .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 1em; font-family: inherit; }
 .btn.primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }

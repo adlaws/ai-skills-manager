@@ -23,6 +23,11 @@ import {
 import { ResourceDetailPanel } from './views/resourceDetailPanel';
 import { InstallationService } from './services/installationService';
 import { PathService } from './services/pathService';
+import { ScaffoldingService } from './services/scaffoldingService';
+import { PackService } from './services/packService';
+import { ValidationService } from './services/validationService';
+import { ConfigService } from './services/configService';
+import { UsageDetectionService } from './services/usageDetectionService';
 import { ResourceItem, InstalledResource, ResourceRepository, ResourceCategory, LocalCollection } from './types';
 
 // ── Helpers ─────────────────────────────────────────────────────
@@ -122,6 +127,15 @@ export function activate(context: vscode.ExtensionContext) {
         context,
         pathService,
     );
+    const scaffoldingService = new ScaffoldingService(pathService);
+    const packService = new PackService(
+        installationService,
+        () => marketplaceProvider.getAllItems(),
+        () => localProvider.getAllItems(),
+    );
+    const validationService = new ValidationService(pathService);
+    const configService = new ConfigService(context);
+    const usageDetectionService = new UsageDetectionService();
 
     // ── View providers ──────────────────────────────────────────
     const marketplaceProvider = new MarketplaceTreeDataProvider(
@@ -140,6 +154,7 @@ export function activate(context: vscode.ExtensionContext) {
         {
             treeDataProvider: marketplaceProvider,
             showCollapseAll: true,
+            canSelectMany: true,
         },
     );
 
@@ -148,6 +163,7 @@ export function activate(context: vscode.ExtensionContext) {
         {
             treeDataProvider: localProvider,
             showCollapseAll: true,
+            canSelectMany: true,
         },
     );
 
@@ -155,16 +171,154 @@ export function activate(context: vscode.ExtensionContext) {
         'aiSkillsManager.installed',
         {
             treeDataProvider: installedProvider,
+            canSelectMany: true,
         },
     );
 
+    // ── Status bar ──────────────────────────────────────────────
+    const statusBarItem = vscode.window.createStatusBarItem(
+        vscode.StatusBarAlignment.Right,
+        100,
+    );
+    statusBarItem.command = 'aiSkillsManager.statusBarAction';
+    statusBarItem.tooltip = 'AI Skills Manager — click for quick actions';
+    context.subscriptions.push(statusBarItem);
+
+    const updateStatusBar = () => {
+        const count = installedProvider.getInstalledResources().length;
+        const updates = installedProvider.getUpdatableCount();
+        if (count === 0) {
+            statusBarItem.text = '$(tools) AI Skills';
+        } else if (updates > 0) {
+            statusBarItem.text = `$(tools) ${count} $(cloud-download) ${updates}`;
+            statusBarItem.tooltip = `AI Skills Manager — ${count} installed, ${updates} update${updates !== 1 ? 's' : ''} available`;
+        } else {
+            statusBarItem.text = `$(tools) ${count}`;
+            statusBarItem.tooltip = `AI Skills Manager — ${count} resource${count !== 1 ? 's' : ''} installed`;
+        }
+        statusBarItem.show();
+    };
+
+    // Update status bar whenever installed tree changes
+    installedProvider.onDidChangeTreeData(() => updateStatusBar());
+    updateStatusBar();
+
     // ── Helpers ─────────────────────────────────────────────────
+
+    /** Extract ResourceItem(s) from a marketplace tree command invocation. */
+    const resolveMarketplaceItems = (
+        clicked: ResourceTreeItem | ResourceItem,
+        selected?: readonly (ResourceTreeItem | ResourceItem)[],
+    ): ResourceItem[] => {
+        if (selected && selected.length > 0) {
+            return selected.map((s) =>
+                s instanceof ResourceTreeItem ? s.resource : s,
+            ).filter(Boolean);
+        }
+        const single = clicked instanceof ResourceTreeItem ? clicked.resource : clicked;
+        return single ? [single] : [];
+    };
+
+    /** Extract InstalledResource(s) from an installed tree command invocation. */
+    const resolveInstalledItems = (
+        clicked: InstalledResourceTreeItem | InstalledResource,
+        selected?: readonly (InstalledResourceTreeItem | InstalledResource)[],
+    ): InstalledResource[] => {
+        if (selected && selected.length > 0) {
+            return selected.map((s) =>
+                s instanceof InstalledResourceTreeItem ? s.resource : s,
+            ).filter(Boolean);
+        }
+        const single = clicked instanceof InstalledResourceTreeItem ? clicked.resource : clicked;
+        return single ? [single] : [];
+    };
+
+    /** Extract ResourceItem(s) from a local collection tree command invocation. */
+    const resolveLocalItems = (
+        clicked: LocalResourceTreeItem | ResourceItem,
+        selected?: readonly (LocalResourceTreeItem | ResourceItem)[],
+    ): ResourceItem[] => {
+        if (selected && selected.length > 0) {
+            return selected.map((s) =>
+                s instanceof LocalResourceTreeItem ? s.resource : s,
+            ).filter(Boolean);
+        }
+        const single = clicked instanceof LocalResourceTreeItem ? clicked.resource : clicked;
+        return single ? [single] : [];
+    };
 
     const syncInstalledStatus = async () => {
         await installedProvider.refresh();
         const names = installedProvider.getInstalledNames();
         marketplaceProvider.setInstalledNames(names);
         localProvider.setInstalledNames(names);
+    };
+
+    /**
+     * Check for updates by comparing installed SHAs against current
+     * marketplace SHAs. Runs in background with progress notification.
+     */
+    const checkForUpdates = async () => {
+        // Load metadata from all install locations
+        const allMeta = await installationService.readAllInstallMetadata();
+        installedProvider.setInstallMetadata(allMeta);
+
+        if (allMeta.size === 0) {
+            vscode.commands.executeCommand('setContext', 'aiSkillsManager:hasUpdates', false);
+            installedProvider.setUpdatableNames(new Set());
+            return;
+        }
+
+        const updatable = new Set<string>();
+
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Window,
+                title: 'Checking for resource updates…',
+            },
+            async (progress) => {
+                for (const [name, meta] of allMeta.entries()) {
+                    if (!meta.sha || !meta.sourceRepo) {
+                        continue;
+                    }
+
+                    progress.report({ message: name });
+
+                    try {
+                        const remoteSha = await resourceClient.fetchResourceSha(
+                            meta.sourceRepo.owner,
+                            meta.sourceRepo.repo,
+                            meta.sourceRepo.branch,
+                            meta.sourceRepo.filePath,
+                        );
+
+                        if (remoteSha && remoteSha !== meta.sha) {
+                            updatable.add(name);
+                        }
+                    } catch {
+                        // Skip resources we can't check
+                    }
+                }
+            },
+        );
+
+        installedProvider.setUpdatableNames(updatable);
+        vscode.commands.executeCommand(
+            'setContext',
+            'aiSkillsManager:hasUpdates',
+            updatable.size > 0,
+        );
+
+        if (updatable.size > 0) {
+            const names = [...updatable].join(', ');
+            const action = await vscode.window.showInformationMessage(
+                `${updatable.size} resource update${updatable.size > 1 ? 's' : ''} available: ${names}`,
+                'Update All',
+            );
+            if (action === 'Update All') {
+                await vscode.commands.executeCommand('aiSkillsManager.updateAll');
+            }
+        }
     };
 
     // ── Commands ────────────────────────────────────────────────
@@ -188,6 +342,167 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('aiSkillsManager.clearSearch', () => {
             marketplaceProvider.clearSearch();
         }),
+
+        // Toggle favorite
+        vscode.commands.registerCommand(
+            'aiSkillsManager.toggleFavorite',
+            async (
+                clicked: ResourceTreeItem | ResourceItem,
+                selected?: readonly (ResourceTreeItem | ResourceItem)[],
+            ) => {
+                const items = resolveMarketplaceItems(clicked, selected);
+                for (const item of items) {
+                    await marketplaceProvider.toggleFavorite(item.id);
+                }
+            },
+        ),
+
+        // Remove from favorites
+        vscode.commands.registerCommand(
+            'aiSkillsManager.removeFavorite',
+            async (
+                clicked: ResourceTreeItem | ResourceItem,
+                selected?: readonly (ResourceTreeItem | ResourceItem)[],
+            ) => {
+                const items = resolveMarketplaceItems(clicked, selected);
+                for (const item of items) {
+                    await marketplaceProvider.removeFavorite(item.id);
+                }
+            },
+        ),
+
+        // Filter by tag
+        vscode.commands.registerCommand(
+            'aiSkillsManager.filterByTag',
+            async () => {
+                const tags = marketplaceProvider.getAllTags();
+                if (tags.length === 0) {
+                    vscode.window.showInformationMessage(
+                        'No tags found in current resources. Tags are parsed from the "tags" field in SKILL.md frontmatter.',
+                    );
+                    return;
+                }
+
+                const pick = await vscode.window.showQuickPick(
+                    tags.map((tag) => ({ label: tag })),
+                    {
+                        placeHolder: 'Select a tag to filter by',
+                        title: 'Filter by Tag',
+                    },
+                );
+
+                if (pick) {
+                    marketplaceProvider.setTagFilter(pick.label);
+                }
+            },
+        ),
+
+        // Clear tag filter
+        vscode.commands.registerCommand('aiSkillsManager.clearTagFilter', () => {
+            marketplaceProvider.clearTagFilter();
+        }),
+
+        // Status bar quick action menu
+        vscode.commands.registerCommand(
+            'aiSkillsManager.statusBarAction',
+            async () => {
+                const installedCount = installedProvider.getInstalledResources().length;
+                const updateCount = installedProvider.getUpdatableCount();
+
+                const actions: { label: string; id: string; description?: string }[] = [
+                    {
+                        label: '$(search) Browse Marketplace',
+                        id: 'marketplace',
+                    },
+                    {
+                        label: '$(add) Create New Resource…',
+                        id: 'create',
+                    },
+                ];
+
+                if (installedCount > 0) {
+                    actions.push({
+                        label: `$(list-tree) View Installed (${installedCount})`,
+                        id: 'installed',
+                    });
+                }
+
+                if (updateCount > 0) {
+                    actions.push({
+                        label: `$(cloud-download) Update All (${updateCount})`,
+                        id: 'updateAll',
+                    });
+                }
+
+                actions.push(
+                    {
+                        label: '$(sync) Check for Updates',
+                        id: 'checkUpdates',
+                    },
+                    {
+                        label: '$(package) Install Resource Pack…',
+                        id: 'installPack',
+                    },
+                    {
+                        label: '$(checklist) Validate Installed Resources',
+                        id: 'validate',
+                    },
+                    {
+                        label: '$(export) Export Configuration…',
+                        id: 'export',
+                    },
+                    {
+                        label: '$(import) Import Configuration…',
+                        id: 'import',
+                    },
+                    {
+                        label: '$(references) Detect Resource Usage',
+                        id: 'detectUsage',
+                    },
+                );
+
+                const pick = await vscode.window.showQuickPick(actions, {
+                    placeHolder: 'AI Skills Manager — Quick Actions',
+                });
+
+                if (!pick) {
+                    return;
+                }
+
+                switch (pick.id) {
+                    case 'marketplace':
+                        await vscode.commands.executeCommand('aiSkillsManager.marketplace.focus');
+                        break;
+                    case 'create':
+                        await vscode.commands.executeCommand('aiSkillsManager.createResource');
+                        break;
+                    case 'installed':
+                        await vscode.commands.executeCommand('aiSkillsManager.installed.focus');
+                        break;
+                    case 'updateAll':
+                        await vscode.commands.executeCommand('aiSkillsManager.updateAll');
+                        break;
+                    case 'checkUpdates':
+                        await vscode.commands.executeCommand('aiSkillsManager.checkForUpdates');
+                        break;
+                    case 'installPack':
+                        await vscode.commands.executeCommand('aiSkillsManager.installPack');
+                        break;
+                    case 'validate':
+                        await vscode.commands.executeCommand('aiSkillsManager.validateResources');
+                        break;
+                    case 'export':
+                        await vscode.commands.executeCommand('aiSkillsManager.exportConfig');
+                        break;
+                    case 'import':
+                        await vscode.commands.executeCommand('aiSkillsManager.importConfig');
+                        break;
+                    case 'detectUsage':
+                        await vscode.commands.executeCommand('aiSkillsManager.detectUsage');
+                        break;
+                }
+            },
+        ),
 
         // Refresh
         vscode.commands.registerCommand(
@@ -324,38 +639,60 @@ export function activate(context: vscode.ExtensionContext) {
         // Install / download (local)
         vscode.commands.registerCommand(
             'aiSkillsManager.install',
-            async (treeItemOrItem: ResourceTreeItem | ResourceItem) => {
-                const item =
-                    treeItemOrItem instanceof ResourceTreeItem
-                        ? treeItemOrItem.resource
-                        : treeItemOrItem;
+            async (
+                clicked: ResourceTreeItem | ResourceItem,
+                selected?: readonly (ResourceTreeItem | ResourceItem)[],
+            ) => {
+                const items = resolveMarketplaceItems(clicked, selected);
+                if (items.length === 0) { return; }
 
-                if (item) {
-                    const success =
-                        await installationService.installResource(item, 'local');
-                    if (success) {
-                        await syncInstalledStatus();
-                    }
+                let anySuccess = false;
+                if (items.length === 1) {
+                    anySuccess = await installationService.installResource(items[0], 'local');
+                } else {
+                    await vscode.window.withProgress(
+                        { location: vscode.ProgressLocation.Notification, title: 'Installing resources…', cancellable: true },
+                        async (progress, token) => {
+                            for (let i = 0; i < items.length; i++) {
+                                if (token.isCancellationRequested) { break; }
+                                progress.report({ message: `${items[i].name} (${i + 1}/${items.length})`, increment: (1 / items.length) * 100 });
+                                const ok = await installationService.installResource(items[i], 'local');
+                                if (ok) { anySuccess = true; }
+                            }
+                        },
+                    );
                 }
+                if (anySuccess) { await syncInstalledStatus(); }
             },
         ),
 
         // Install globally
         vscode.commands.registerCommand(
             'aiSkillsManager.installGlobally',
-            async (treeItemOrItem: ResourceTreeItem | ResourceItem) => {
-                const item =
-                    treeItemOrItem instanceof ResourceTreeItem
-                        ? treeItemOrItem.resource
-                        : treeItemOrItem;
+            async (
+                clicked: ResourceTreeItem | ResourceItem,
+                selected?: readonly (ResourceTreeItem | ResourceItem)[],
+            ) => {
+                const items = resolveMarketplaceItems(clicked, selected);
+                if (items.length === 0) { return; }
 
-                if (item) {
-                    const success =
-                        await installationService.installResource(item, 'global');
-                    if (success) {
-                        await syncInstalledStatus();
-                    }
+                let anySuccess = false;
+                if (items.length === 1) {
+                    anySuccess = await installationService.installResource(items[0], 'global');
+                } else {
+                    await vscode.window.withProgress(
+                        { location: vscode.ProgressLocation.Notification, title: 'Installing resources globally…', cancellable: true },
+                        async (progress, token) => {
+                            for (let i = 0; i < items.length; i++) {
+                                if (token.isCancellationRequested) { break; }
+                                progress.report({ message: `${items[i].name} (${i + 1}/${items.length})`, increment: (1 / items.length) * 100 });
+                                const ok = await installationService.installResource(items[i], 'global');
+                                if (ok) { anySuccess = true; }
+                            }
+                        },
+                    );
                 }
+                if (anySuccess) { await syncInstalledStatus(); }
             },
         ),
 
@@ -363,20 +700,18 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand(
             'aiSkillsManager.moveToGlobal',
             async (
-                treeItemOrResource: InstalledResourceTreeItem | InstalledResource,
+                clicked: InstalledResourceTreeItem | InstalledResource,
+                selected?: readonly (InstalledResourceTreeItem | InstalledResource)[],
             ) => {
-                const resource =
-                    treeItemOrResource instanceof InstalledResourceTreeItem
-                        ? treeItemOrResource.resource
-                        : treeItemOrResource;
+                const resources = resolveInstalledItems(clicked, selected);
+                if (resources.length === 0) { return; }
 
-                if (resource) {
-                    const success =
-                        await installationService.moveResource(resource, 'global');
-                    if (success) {
-                        await syncInstalledStatus();
-                    }
+                let anySuccess = false;
+                for (const resource of resources) {
+                    const ok = await installationService.moveResource(resource, 'global');
+                    if (ok) { anySuccess = true; }
                 }
+                if (anySuccess) { await syncInstalledStatus(); }
             },
         ),
 
@@ -384,20 +719,18 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand(
             'aiSkillsManager.moveToWorkspace',
             async (
-                treeItemOrResource: InstalledResourceTreeItem | InstalledResource,
+                clicked: InstalledResourceTreeItem | InstalledResource,
+                selected?: readonly (InstalledResourceTreeItem | InstalledResource)[],
             ) => {
-                const resource =
-                    treeItemOrResource instanceof InstalledResourceTreeItem
-                        ? treeItemOrResource.resource
-                        : treeItemOrResource;
+                const resources = resolveInstalledItems(clicked, selected);
+                if (resources.length === 0) { return; }
 
-                if (resource) {
-                    const success =
-                        await installationService.moveResource(resource, 'local');
-                    if (success) {
-                        await syncInstalledStatus();
-                    }
+                let anySuccess = false;
+                for (const resource of resources) {
+                    const ok = await installationService.moveResource(resource, 'local');
+                    if (ok) { anySuccess = true; }
                 }
+                if (anySuccess) { await syncInstalledStatus(); }
             },
         ),
 
@@ -405,20 +738,18 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand(
             'aiSkillsManager.copyToLocalCollection',
             async (
-                treeItemOrResource: InstalledResourceTreeItem | InstalledResource,
+                clicked: InstalledResourceTreeItem | InstalledResource,
+                selected?: readonly (InstalledResourceTreeItem | InstalledResource)[],
             ) => {
-                const resource =
-                    treeItemOrResource instanceof InstalledResourceTreeItem
-                        ? treeItemOrResource.resource
-                        : treeItemOrResource;
+                const resources = resolveInstalledItems(clicked, selected);
+                if (resources.length === 0) { return; }
 
-                if (resource) {
-                    const success =
-                        await installationService.copyToLocalCollection(resource);
-                    if (success) {
-                        await localProvider.refresh();
-                    }
+                let anySuccess = false;
+                for (const resource of resources) {
+                    const ok = await installationService.copyToLocalCollection(resource);
+                    if (ok) { anySuccess = true; }
                 }
+                if (anySuccess) { await localProvider.refresh(); }
             },
         ),
 
@@ -426,19 +757,45 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand(
             'aiSkillsManager.uninstall',
             async (
-                treeItemOrItem:
-                    | InstalledResourceTreeItem
-                    | InstalledResource
-                    | ResourceItem,
+                clicked: InstalledResourceTreeItem | InstalledResource | ResourceItem,
+                selected?: readonly (InstalledResourceTreeItem | InstalledResource)[],
             ) => {
+                // When multi-select is active, use the selected array
+                if (selected && selected.length > 1) {
+                    const resources = resolveInstalledItems(
+                        clicked as InstalledResourceTreeItem | InstalledResource,
+                        selected,
+                    );
+                    if (resources.length === 0) { return; }
+
+                    const confirm = await vscode.window.showWarningMessage(
+                        `Remove ${resources.length} selected resources? This will delete their files.`,
+                        { modal: true },
+                        'Remove All',
+                    );
+                    if (confirm !== 'Remove All') { return; }
+
+                    let anySuccess = false;
+                    for (const resource of resources) {
+                        const ok = await installationService.uninstallResourceSilent(resource);
+                        if (ok) {
+                            await installationService.removeInstallMetadata(resource);
+                            anySuccess = true;
+                        }
+                    }
+                    if (anySuccess) { await syncInstalledStatus(); }
+                    return;
+                }
+
+                // Single-item uninstall (existing logic)
                 let installed: InstalledResource | undefined;
 
-                if (treeItemOrItem instanceof InstalledResourceTreeItem) {
-                    installed = treeItemOrItem.resource;
-                } else if ('location' in treeItemOrItem) {
-                    installed = treeItemOrItem as InstalledResource;
+                if (clicked instanceof InstalledResourceTreeItem) {
+                    installed = clicked.resource;
+                } else if ('location' in clicked) {
+                    installed = clicked as InstalledResource;
                 } else {
-                    const item = treeItemOrItem as ResourceItem;
+                    const item = clicked as ResourceItem;
                     installed = installedProvider
                         .getInstalledResources()
                         .find((r) => r.name === item.name);
@@ -448,6 +805,7 @@ export function activate(context: vscode.ExtensionContext) {
                     const success =
                         await installationService.uninstallResource(installed);
                     if (success) {
+                        await installationService.removeInstallMetadata(installed);
                         await syncInstalledStatus();
                     }
                 }
@@ -461,6 +819,224 @@ export function activate(context: vscode.ExtensionContext) {
                 if (item?.resource) {
                     await installationService.openResource(item.resource);
                 }
+            },
+        ),
+
+        // Check for updates
+        vscode.commands.registerCommand(
+            'aiSkillsManager.checkForUpdates',
+            async () => {
+                await checkForUpdates();
+            },
+        ),
+
+        // Update a single resource (or multiple selected)
+        vscode.commands.registerCommand(
+            'aiSkillsManager.updateResource',
+            async (
+                clicked: InstalledResourceTreeItem | InstalledResource,
+                selected?: readonly (InstalledResourceTreeItem | InstalledResource)[],
+            ) => {
+                const resources = resolveInstalledItems(clicked, selected);
+                if (resources.length === 0) { return; }
+
+                let anySuccess = false;
+                for (const resource of resources) {
+                    const marketplaceItem = marketplaceProvider.getItemByName(resource.name);
+                    const ok = await installationService.updateResource(resource, marketplaceItem);
+                    if (ok) { anySuccess = true; }
+                }
+                if (anySuccess) {
+                    await syncInstalledStatus();
+                    await checkForUpdates();
+                }
+            },
+        ),
+
+        // Update all resources with available updates
+        vscode.commands.registerCommand(
+            'aiSkillsManager.updateAll',
+            async () => {
+                const updatableNames = installedProvider.getUpdatableNames();
+                if (updatableNames.size === 0) {
+                    vscode.window.showInformationMessage('All resources are up to date.');
+                    return;
+                }
+
+                const confirm = await vscode.window.showInformationMessage(
+                    `Update ${updatableNames.size} resource${updatableNames.size > 1 ? 's' : ''}?`,
+                    { modal: true },
+                    'Update All',
+                );
+                if (confirm !== 'Update All') {
+                    return;
+                }
+
+                let updated = 0;
+                let failed = 0;
+
+                await vscode.window.withProgress(
+                    {
+                        location: vscode.ProgressLocation.Notification,
+                        title: 'Updating resources…',
+                        cancellable: true,
+                    },
+                    async (progress, token) => {
+                        const total = updatableNames.size;
+                        let processed = 0;
+
+                        for (const name of updatableNames) {
+                            if (token.isCancellationRequested) {
+                                break;
+                            }
+
+                            const resource = installedProvider.getInstalledByName(name);
+                            if (!resource) {
+                                continue;
+                            }
+
+                            progress.report({
+                                message: `${name} (${processed + 1}/${total})`,
+                                increment: (1 / total) * 100,
+                            });
+
+                            const marketplaceItem = marketplaceProvider.getItemByName(name);
+                            const success = await installationService.updateResource(
+                                resource,
+                                marketplaceItem,
+                            );
+
+                            if (success) {
+                                updated++;
+                            } else {
+                                failed++;
+                            }
+                            processed++;
+                        }
+                    },
+                );
+
+                await syncInstalledStatus();
+                await checkForUpdates();
+
+                if (failed > 0) {
+                    vscode.window.showWarningMessage(
+                        `Updated ${updated} resource${updated !== 1 ? 's' : ''}, ${failed} failed.`,
+                    );
+                } else {
+                    vscode.window.showInformationMessage(
+                        `Successfully updated ${updated} resource${updated !== 1 ? 's' : ''}.`,
+                    );
+                }
+            },
+        ),
+
+        // Create new resource from template
+        vscode.commands.registerCommand(
+            'aiSkillsManager.createResource',
+            async () => {
+                const success = await scaffoldingService.createResource();
+                if (success) {
+                    await syncInstalledStatus();
+                }
+            },
+        ),
+
+        // Install a resource pack from file
+        vscode.commands.registerCommand(
+            'aiSkillsManager.installPack',
+            async () => {
+                const result = await packService.installPack();
+                if (result.installed > 0) {
+                    await syncInstalledStatus();
+                }
+            },
+        ),
+
+        // Create a resource pack from installed resources
+        vscode.commands.registerCommand(
+            'aiSkillsManager.createPack',
+            async (
+                clicked?: InstalledResourceTreeItem | InstalledResource,
+                selected?: readonly (InstalledResourceTreeItem | InstalledResource)[],
+            ) => {
+                // If invoked from multi-select, pre-select those resources
+                const preSelected = (selected && selected.length > 0)
+                    ? resolveInstalledItems(clicked!, selected)
+                    : undefined;
+
+                const allResources = preSelected ??
+                    installedProvider.getInstalledResources();
+
+                const resources = allResources.map((r) => ({ name: r.name, category: r.category }));
+                await packService.createPack(resources);
+            },
+        ),
+
+        // Validate installed resources
+        vscode.commands.registerCommand(
+            'aiSkillsManager.validateResources',
+            async () => {
+                const resources = installedProvider.getInstalledResources();
+                if (resources.length === 0) {
+                    vscode.window.showInformationMessage('No resources installed to validate.');
+                    return;
+                }
+
+                const issues = await vscode.window.withProgress(
+                    {
+                        location: vscode.ProgressLocation.Notification,
+                        title: 'Validating installed resources…',
+                    },
+                    () => validationService.validate(resources),
+                );
+
+                await validationService.showResults(issues, resources.length);
+            },
+        ),
+
+        // Export configuration
+        vscode.commands.registerCommand(
+            'aiSkillsManager.exportConfig',
+            async () => {
+                await configService.exportConfig();
+            },
+        ),
+
+        // Import configuration
+        vscode.commands.registerCommand(
+            'aiSkillsManager.importConfig',
+            async () => {
+                const success = await configService.importConfig();
+                if (success) {
+                    await Promise.all([
+                        marketplaceProvider.refresh(),
+                        localProvider.refresh(),
+                        installedProvider.refresh(),
+                    ]);
+                }
+            },
+        ),
+
+        // Detect resource usage in workspace
+        vscode.commands.registerCommand(
+            'aiSkillsManager.detectUsage',
+            async () => {
+                const resources = installedProvider.getInstalledResources();
+                if (resources.length === 0) {
+                    vscode.window.showInformationMessage('No resources installed to check usage for.');
+                    return;
+                }
+
+                const result = await vscode.window.withProgress(
+                    {
+                        location: vscode.ProgressLocation.Notification,
+                        title: 'Scanning workspace for resource references…',
+                    },
+                    () => usageDetectionService.detectUsage(resources),
+                );
+
+                await usageDetectionService.showResults(result, resources);
             },
         ),
 
@@ -651,38 +1227,38 @@ export function activate(context: vscode.ExtensionContext) {
         // Install from local collection (local scope)
         vscode.commands.registerCommand(
             'aiSkillsManager.localInstall',
-            async (treeItemOrItem: LocalResourceTreeItem | ResourceItem) => {
-                const item =
-                    treeItemOrItem instanceof LocalResourceTreeItem
-                        ? treeItemOrItem.resource
-                        : treeItemOrItem;
+            async (
+                clicked: LocalResourceTreeItem | ResourceItem,
+                selected?: readonly (LocalResourceTreeItem | ResourceItem)[],
+            ) => {
+                const items = resolveLocalItems(clicked, selected);
+                if (items.length === 0) { return; }
 
-                if (item) {
-                    const success =
-                        await installationService.installFromLocal(item, 'local');
-                    if (success) {
-                        await syncInstalledStatus();
-                    }
+                let anySuccess = false;
+                for (const item of items) {
+                    const ok = await installationService.installFromLocal(item, 'local');
+                    if (ok) { anySuccess = true; }
                 }
+                if (anySuccess) { await syncInstalledStatus(); }
             },
         ),
 
         // Install from local collection (global scope)
         vscode.commands.registerCommand(
             'aiSkillsManager.localInstallGlobally',
-            async (treeItemOrItem: LocalResourceTreeItem | ResourceItem) => {
-                const item =
-                    treeItemOrItem instanceof LocalResourceTreeItem
-                        ? treeItemOrItem.resource
-                        : treeItemOrItem;
+            async (
+                clicked: LocalResourceTreeItem | ResourceItem,
+                selected?: readonly (LocalResourceTreeItem | ResourceItem)[],
+            ) => {
+                const items = resolveLocalItems(clicked, selected);
+                if (items.length === 0) { return; }
 
-                if (item) {
-                    const success =
-                        await installationService.installFromLocal(item, 'global');
-                    if (success) {
-                        await syncInstalledStatus();
-                    }
+                let anySuccess = false;
+                for (const item of items) {
+                    const ok = await installationService.installFromLocal(item, 'global');
+                    if (ok) { anySuccess = true; }
                 }
+                if (anySuccess) { await syncInstalledStatus(); }
             },
         ),
 
@@ -733,46 +1309,84 @@ export function activate(context: vscode.ExtensionContext) {
         // Delete resource from local collection on disk
         vscode.commands.registerCommand(
             'aiSkillsManager.localDeleteResource',
-            async (treeItem: LocalResourceTreeItem) => {
-                if (!treeItem?.resource) {
-                    return;
-                }
-                const item = treeItem.resource;
-                const isSkill =
-                    item.category === ResourceCategory.Skills &&
-                    item.file.type === 'dir';
+            async (
+                clicked: LocalResourceTreeItem,
+                selected?: readonly LocalResourceTreeItem[],
+            ) => {
+                const treeItems = (selected && selected.length > 0)
+                    ? [...selected].filter((s) => s instanceof LocalResourceTreeItem)
+                    : (clicked instanceof LocalResourceTreeItem ? [clicked] : []);
 
-                const warningMessage = isSkill
-                    ? `Permanently delete skill folder "${item.name}" and all its contents from disk?`
-                    : `Permanently delete file "${item.name}" from disk?`;
+                if (treeItems.length === 0) { return; }
 
-                const confirm = await vscode.window.showWarningMessage(
-                    warningMessage,
-                    { modal: true, detail: `This will remove: ${item.file.path}` },
-                    'Delete',
-                );
+                if (treeItems.length === 1) {
+                    const item = treeItems[0].resource;
+                    if (!item) { return; }
+                    const isSkill =
+                        item.category === ResourceCategory.Skills &&
+                        item.file.type === 'dir';
 
-                if (confirm !== 'Delete') {
-                    return;
-                }
+                    const warningMessage = isSkill
+                        ? `Permanently delete skill folder "${item.name}" and all its contents from disk?`
+                        : `Permanently delete file "${item.name}" from disk?`;
 
-                try {
-                    const fileUri = vscode.Uri.file(item.file.path);
-                    await vscode.workspace.fs.delete(fileUri, {
-                        recursive: isSkill,
-                        useTrash: true,
-                    });
+                    const confirm = await vscode.window.showWarningMessage(
+                        warningMessage,
+                        { modal: true, detail: `This will remove: ${item.file.path}` },
+                        'Delete',
+                    );
+                    if (confirm !== 'Delete') { return; }
+
+                    try {
+                        const fileUri = vscode.Uri.file(item.file.path);
+                        await vscode.workspace.fs.delete(fileUri, {
+                            recursive: isSkill,
+                            useTrash: true,
+                        });
+                        vscode.window.showInformationMessage(
+                            `Deleted "${item.name}" from disk`,
+                        );
+                    } catch (error) {
+                        const msg =
+                            error instanceof Error ? error.message : String(error);
+                        vscode.window.showErrorMessage(
+                            `Failed to delete: ${msg}`,
+                        );
+                    }
+                } else {
+                    const names = treeItems.map((t) => t.resource?.name).filter(Boolean);
+                    const confirm = await vscode.window.showWarningMessage(
+                        `Permanently delete ${treeItems.length} resources from disk?`,
+                        { modal: true, detail: names.join(', ') },
+                        'Delete All',
+                    );
+                    if (confirm !== 'Delete All') { return; }
+
+                    for (const treeItem of treeItems) {
+                        const item = treeItem.resource;
+                        if (!item) { continue; }
+                        const isSkill =
+                            item.category === ResourceCategory.Skills &&
+                            item.file.type === 'dir';
+                        try {
+                            const fileUri = vscode.Uri.file(item.file.path);
+                            await vscode.workspace.fs.delete(fileUri, {
+                                recursive: isSkill,
+                                useTrash: true,
+                            });
+                        } catch (error) {
+                            const msg =
+                                error instanceof Error ? error.message : String(error);
+                            vscode.window.showErrorMessage(
+                                `Failed to delete "${item.name}": ${msg}`,
+                            );
+                        }
+                    }
                     vscode.window.showInformationMessage(
-                        `Deleted "${item.name}" from disk`,
-                    );
-                    await localProvider.refresh();
-                } catch (error) {
-                    const msg =
-                        error instanceof Error ? error.message : String(error);
-                    vscode.window.showErrorMessage(
-                        `Failed to delete: ${msg}`,
+                        `Deleted ${treeItems.length} resources from disk`,
                     );
                 }
+                await localProvider.refresh();
             },
         ),
 
@@ -974,10 +1588,15 @@ export function activate(context: vscode.ExtensionContext) {
         installedProvider.refresh(),
         marketplaceProvider.loadResources(),
         localProvider.loadResources(),
-    ]).then(() => {
+    ]).then(async () => {
         const names = installedProvider.getInstalledNames();
         marketplaceProvider.setInstalledNames(names);
         localProvider.setInstalledNames(names);
+
+        // Check for updates after initial load (non-blocking)
+        checkForUpdates().catch(() => {
+            // Silently ignore update check failures
+        });
     });
 }
 

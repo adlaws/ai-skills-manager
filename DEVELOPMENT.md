@@ -50,12 +50,17 @@ ai-skills-manager/
     │   └── resourceClient.ts         # GitHub API client (Contents + Trees APIs)
     ├── services/
     │   ├── pathService.ts            # Install / scan location resolution
-    │   └── installationService.ts    # Install, uninstall, copy, open resources
+    │   ├── installationService.ts    # Install, uninstall, update, copy, open resources
+    │   ├── scaffoldingService.ts     # Create new resources from category templates
+    │   ├── packService.ts            # Install and create resource pack bundles
+    │   ├── validationService.ts      # Health checks for installed resources
+    │   ├── configService.ts          # Export / import extension configuration
+    │   └── usageDetectionService.ts  # Scan workspace for resource references
     ├── views/
-    │   ├── marketplaceProvider.ts    # Marketplace tree (Repo → Category → Item)
+    │   ├── marketplaceProvider.ts    # Marketplace tree (Repo → Category → Item) + Favorites + tag filter
     │   ├── localProvider.ts          # Local Collections tree (Collection → Category → Item)
-    │   ├── installedProvider.ts       # Installed tree (Category → Item)
-    │   └── resourceDetailPanel.ts     # Webview detail panel (markdown preview)
+    │   ├── installedProvider.ts       # Installed tree (Category → Item) + update badges
+    │   └── resourceDetailPanel.ts     # Webview detail panel (markdown preview) + update button
     └── test/
         ├── types.test.ts             # Constants & enum coverage
         ├── pathService.test.ts        # PathService unit tests
@@ -68,15 +73,20 @@ ai-skills-manager/
 
 | Module | Responsibility |
 |---|---|
-| `types.ts` | `ResourceCategory` enum (5 categories), label/icon/default-path lookup maps, `DEFAULT_GLOBAL_INSTALL_PATHS`, `InstallScope` type, `LocalCollection` interface, all shared interfaces (`ResourceItem`, `InstalledResource`, `ResourceRepository`, etc.) |
-| `github/resourceClient.ts` | Fetches resources from GitHub. **Full repos** use the Contents API to list category folders. **Skills repos** (`skillsPath` set) use the Git Trees API for recursive scanning. Raw content is fetched from `raw.githubusercontent.com`. All responses are cached in memory with a configurable TTL. |
+| `types.ts` | `ResourceCategory` enum (5 categories), label/icon/default-path lookup maps, `DEFAULT_GLOBAL_INSTALL_PATHS`, `InstallScope` type, `LocalCollection` interface, `InstallMetadata` interface, `ResourcePack`/`PackResourceRef` interfaces, all shared interfaces (`ResourceItem`, `InstalledResource`, `ResourceRepository`, etc.) |
+| `github/resourceClient.ts` | Fetches resources from GitHub. **Full repos** use the Contents API to list category folders. **Skills repos** (`skillsPath` set) use the Git Trees API for recursive scanning. Raw content is fetched from `raw.githubusercontent.com`. All responses are cached in memory with a configurable TTL. Also fetches individual file SHAs for update detection and extracts tags from resource frontmatter. |
 | `services/pathService.ts` | Resolves per-category install and scan locations, for both local (workspace) and global (home directory) scopes. Paths starting with `~/` resolve to the home directory; all others resolve relative to the first workspace folder. |
-| `services/installationService.ts` | Handles the download-and-write flow. Skills (folders) are fetched file-by-file and written recursively. Other resources are single-file downloads. Supports local and global install scopes, moving resources between scopes, copying resources to local collections, overwrite prompts, and cancellation. |
-| `views/marketplaceProvider.ts` | Three-level `TreeDataProvider` (Repo → Category → Resource). Supports search filtering and tracks which items are already installed. |
+| `services/installationService.ts` | Handles the download-and-write flow. Skills (folders) are fetched file-by-file and written recursively. Other resources are single-file downloads. Supports local and global install scopes, moving resources between scopes, copying resources to local collections, overwrite prompts with diff comparison, and cancellation. Persists install metadata (SHA + source repo) for update tracking. Provides `updateResource()` for in-place updates. |
+| `services/scaffoldingService.ts` | Creates new resources from built-in templates. Each category has a template function that generates properly structured content with frontmatter. Skills create a folder with `SKILL.md`; other categories create a single file. Opens the created file in the editor. |
+| `services/packService.ts` | Installs resource packs from JSON manifest files (resolves each resource against the marketplace and installs sequentially). Creates pack manifests from selected installed resources, capturing their source repository and category information. |
+| `services/validationService.ts` | Runs health checks across all installed resources in both scopes. Checks for missing files, empty content, invalid YAML frontmatter (for `.md` resources), and missing `SKILL.md` (for skill folders). Reports results via information messages and the Output Channel. |
+| `services/configService.ts` | Exports the full extension configuration (repositories, local collections, install locations, favorites, cache timeout) to a JSON file. Imports from a JSON file with either a merge strategy (additive, skips duplicates) or replace strategy (full overwrite). |
+| `services/usageDetectionService.ts` | Scans well-known workspace files (`copilot-instructions.md`, `settings.json`, `mcp.json`, `AGENTS.md`, `CLAUDE.md`, `.cursorrules`, etc.) for string matches of installed resource names. Reports which resources are referenced and where. |
+| `views/marketplaceProvider.ts` | Three-level `TreeDataProvider` (Repo → Category → Resource). Supports search filtering, tag-based filtering, and tracks which items are already installed. Shows a Favorites section at the tree root when the user has starred resources. |
 | `views/localProvider.ts` | Three-level `TreeDataProvider` (Collection → Category → Resource). Scans configured local collection folders on disk for the standard category structure. Supports search filtering and tracks which items are already installed. |
-| `views/installedProvider.ts` | Two-level `TreeDataProvider` (Category → Installed Resource). Scans configured + well-known directories on disk (both local and global). Skills are recognised by the presence of `SKILL.md`. Each item shows its scope (Global/Workspace) and uses scope-specific context values for menu control. |
-| `views/resourceDetailPanel.ts` | Webview panel that renders resource details with `markdown-it`. Shows metadata, install/remove buttons, and a "View Source" link. Also supports viewing details for installed and local collection resources by reading content from disk. Auto-refreshes install status when the panel becomes visible. |
-| `extension.ts` | Wires everything together — creates service instances, registers commands (including local collection management), sets up file watchers, and subscribes to configuration changes. |
+| `views/installedProvider.ts` | Two-level `TreeDataProvider` (Category → Installed Resource). Scans configured + well-known directories on disk (both local and global). Skills are recognised by the presence of `SKILL.md`. Each item shows its scope (Global/Workspace) and uses scope-specific context values for menu control. Tracks install metadata and shows update badges on resources with available upstream changes. |
+| `views/resourceDetailPanel.ts` | Webview panel that renders resource details with `markdown-it`. Shows metadata, install/remove buttons, and a "View Source" link. Also supports viewing details for installed and local collection resources by reading content from disk. Auto-refreshes install status when the panel becomes visible. Shows update badges and an "Update" button when upstream changes are available. |
+| `extension.ts` | Wires everything together — creates service instances (including scaffolding, pack, validation, config, and usage detection services), registers all commands, sets up file watchers, creates the status bar item (showing installed count and update count), runs automatic update checks after initial load, and subscribes to configuration changes. |
 
 ### Build outputs
 

@@ -8,7 +8,7 @@
 import * as path from 'path';
 import * as os from 'os';
 import * as vscode from 'vscode';
-import { ResourceItem, InstalledResource, ResourceCategory, InstallScope, LocalCollection } from '../types';
+import { ResourceItem, InstalledResource, ResourceCategory, InstallScope, LocalCollection, InstallMetadata } from '../types';
 import { ResourceClient } from '../github/resourceClient';
 import { PathService } from './pathService';
 
@@ -25,13 +25,22 @@ export class InstallationService {
      * Install a marketplace resource to the configured location.
      */
     async installResource(item: ResourceItem, scope: InstallScope = 'local'): Promise<boolean> {
+        let result: boolean;
         if (
             item.category === ResourceCategory.Skills &&
             item.file.type === 'dir'
         ) {
-            return this.installSkillFolder(item, scope);
+            result = await this.installSkillFolder(item, scope);
+        } else {
+            result = await this.installSingleFile(item, scope);
         }
-        return this.installSingleFile(item, scope);
+
+        // Persist install metadata (SHA + source repo) for update detection
+        if (result && item.file.sha && item.repo?.owner && item.repo?.repo) {
+            await this.saveInstallMetadata(item, scope);
+        }
+
+        return result;
     }
 
     /**
@@ -61,6 +70,33 @@ export class InstallationService {
             return false;
         }
 
+        return this.deleteResource(resource, workspaceFolder);
+    }
+
+    /**
+     * Uninstall an installed resource without prompting for confirmation.
+     * Used for bulk operations where the caller has already confirmed.
+     */
+    async uninstallResourceSilent(resource: InstalledResource): Promise<boolean> {
+        const workspaceFolder = this.pathService.getWorkspaceFolderForLocation(
+            resource.location,
+        );
+
+        if (
+            this.pathService.requiresWorkspaceFolder(resource.location) &&
+            !workspaceFolder
+        ) {
+            return false;
+        }
+
+        return this.deleteResource(resource, workspaceFolder);
+    }
+
+    /** Shared deletion logic for uninstallResource and uninstallResourceSilent. */
+    private async deleteResource(
+        resource: InstalledResource,
+        workspaceFolder: vscode.WorkspaceFolder | undefined,
+    ): Promise<boolean> {
         try {
             const uri = this.pathService.resolveLocationToUri(
                 resource.location,
@@ -76,11 +112,10 @@ export class InstallationService {
                 recursive: true,
                 useTrash: true,
             });
-            vscode.window.showInformationMessage(`Removed "${resource.name}"`);
             return true;
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
-            vscode.window.showErrorMessage(`Failed to remove: ${msg}`);
+            vscode.window.showErrorMessage(`Failed to remove "${resource.name}": ${msg}`);
             return false;
         }
     }
@@ -147,12 +182,28 @@ export class InstallationService {
         } else {
             try {
                 await vscode.workspace.fs.stat(targetUri);
-                const overwrite = await vscode.window.showWarningMessage(
-                    `"${item.name}" already exists. Overwrite?`,
+                const action = await vscode.window.showWarningMessage(
+                    `"${item.name}" already exists. What would you like to do?`,
                     { modal: true },
                     'Overwrite',
+                    'Compare',
                 );
-                if (overwrite !== 'Overwrite') {
+                if (action === 'Compare') {
+                    await vscode.commands.executeCommand(
+                        'vscode.diff',
+                        targetUri,
+                        sourceUri,
+                        `${item.name}: Installed ↔ Incoming`,
+                    );
+                    const confirm = await vscode.window.showInformationMessage(
+                        `Overwrite "${item.name}" with the incoming version?`,
+                        'Overwrite',
+                        'Cancel',
+                    );
+                    if (confirm !== 'Overwrite') {
+                        return false;
+                    }
+                } else if (action !== 'Overwrite') {
                     return false;
                 }
             } catch {
@@ -380,7 +431,7 @@ export class InstallationService {
             return false;
         }
 
-        return vscode.window.withProgress(
+        const result = await vscode.window.withProgress(
             {
                 location: vscode.ProgressLocation.Notification,
                 title: `Installing ${item.name}…`,
@@ -463,9 +514,6 @@ export class InstallationService {
                         });
                     }
 
-                    vscode.window.showInformationMessage(
-                        `Installed skill "${item.name}"`,
-                    );
                     return true;
                 } catch (error) {
                     const msg =
@@ -484,6 +532,14 @@ export class InstallationService {
                 }
             },
         );
+
+        if (result) {
+            vscode.window.showInformationMessage(
+                `Installed skill "${item.name}"`,
+            );
+        }
+
+        return result;
     }
 
     // ── Private: Single file installation ───────────────────────
@@ -494,21 +550,60 @@ export class InstallationService {
             return false;
         }
 
+        let existsOnDisk = false;
         try {
             await vscode.workspace.fs.stat(targetFile);
-            const overwrite = await vscode.window.showWarningMessage(
-                `"${item.name}" already exists. Overwrite?`,
-                { modal: true },
-                'Overwrite',
-            );
-            if (overwrite !== 'Overwrite') {
-                return false;
-            }
+            existsOnDisk = true;
         } catch {
             // Doesn't exist yet
         }
 
-        return vscode.window.withProgress(
+        if (existsOnDisk) {
+            const action = await vscode.window.showWarningMessage(
+                `"${item.name}" already exists. What would you like to do?`,
+                { modal: true },
+                'Overwrite',
+                'Compare',
+            );
+            if (action === 'Compare') {
+                // Fetch the new content and show diff
+                try {
+                    const newContent = await this.client.fetchFileContent(
+                        item.file.download_url,
+                    );
+                    const tempUri = vscode.Uri.parse(
+                        `untitled:${item.name}.incoming`,
+                    );
+                    await vscode.workspace.openTextDocument(tempUri);
+                    const edit = new vscode.WorkspaceEdit();
+                    edit.insert(tempUri, new vscode.Position(0, 0), newContent);
+                    await vscode.workspace.applyEdit(edit);
+
+                    await vscode.commands.executeCommand(
+                        'vscode.diff',
+                        targetFile,
+                        tempUri,
+                        `${item.name}: Local ↔ Incoming`,
+                    );
+
+                    // After viewing the diff, ask again
+                    const confirm = await vscode.window.showInformationMessage(
+                        `Overwrite "${item.name}" with the incoming version?`,
+                        'Overwrite',
+                        'Cancel',
+                    );
+                    if (confirm !== 'Overwrite') {
+                        return false;
+                    }
+                } catch {
+                    // Fall through to normal install if diff fails
+                }
+            } else if (action !== 'Overwrite') {
+                return false;
+            }
+        }
+
+        const result = await vscode.window.withProgress(
             {
                 location: vscode.ProgressLocation.Notification,
                 title: `Downloading ${item.name}…`,
@@ -535,14 +630,6 @@ export class InstallationService {
                         new TextEncoder().encode(content),
                     );
 
-                    const openChoice =
-                        await vscode.window.showInformationMessage(
-                            `Downloaded "${item.name}"`,
-                            'Open File',
-                        );
-                    if (openChoice === 'Open File') {
-                        await vscode.window.showTextDocument(targetFile);
-                    }
                     return true;
                 } catch (error) {
                     const msg =
@@ -554,6 +641,19 @@ export class InstallationService {
                 }
             },
         );
+
+        if (result) {
+            const openChoice =
+                await vscode.window.showInformationMessage(
+                    `Downloaded "${item.name}"`,
+                    'Open File',
+                );
+            if (openChoice === 'Open File') {
+                await vscode.window.showTextDocument(targetFile);
+            }
+        }
+
+        return result;
     }
 
     // ── Helpers ─────────────────────────────────────────────────
@@ -593,6 +693,7 @@ export class InstallationService {
 
     /**
      * Check whether the target directory already exists and prompt for overwrite.
+     * For skills, offers a "Compare" option that diffs SKILL.md files.
      * Returns `true` if the user cancelled (i.e. do NOT proceed).
      */
     private async promptOverwriteDir(
@@ -601,14 +702,37 @@ export class InstallationService {
     ): Promise<boolean> {
         try {
             await vscode.workspace.fs.stat(targetDir);
-            const overwrite = await vscode.window.showWarningMessage(
-                `"${name}" is already installed. Overwrite?`,
+            const action = await vscode.window.showWarningMessage(
+                `"${name}" is already installed. What would you like to do?`,
                 { modal: true },
                 'Overwrite',
+                'Compare SKILL.md',
             );
-            if (overwrite !== 'Overwrite') {
+
+            if (action === 'Compare SKILL.md') {
+                // Show diff of SKILL.md (local vs installed)
+                const localSkillMd = vscode.Uri.joinPath(targetDir, 'SKILL.md');
+                try {
+                    await vscode.workspace.fs.stat(localSkillMd);
+                    // Show the existing SKILL.md file — the incoming one isn't yet
+                    // available as a file. Just open the installed one so the user
+                    // can review it before deciding.
+                    await vscode.window.showTextDocument(localSkillMd);
+                    const confirm = await vscode.window.showInformationMessage(
+                        `This is the currently installed SKILL.md for "${name}". Overwrite with the new version?`,
+                        'Overwrite',
+                        'Cancel',
+                    );
+                    if (confirm !== 'Overwrite') {
+                        return true;
+                    }
+                } catch {
+                    // No existing SKILL.md — proceed with overwrite
+                }
+            } else if (action !== 'Overwrite') {
                 return true;
             }
+
             await vscode.workspace.fs.delete(targetDir, { recursive: true });
             return false;
         } catch {
@@ -642,5 +766,179 @@ export class InstallationService {
             return undefined;
         }
         return vscode.Uri.joinPath(wf.uri, trimmed);
+    }
+
+    // ── Install metadata persistence ────────────────────────────
+
+    private static readonly META_FILENAME = '.ai-skills-meta.json';
+
+    /**
+     * Save install metadata (SHA + source repo) for update detection.
+     * Metadata is stored in a `.ai-skills-meta.json` file in the category
+     * install directory (the parent of the resource file/folder).
+     */
+    async saveInstallMetadata(item: ResourceItem, scope: InstallScope): Promise<void> {
+        try {
+            const installLocation = this.pathService.getInstallLocationForScope(item.category, scope);
+            const wf = this.pathService.getWorkspaceFolderForLocation(installLocation);
+            const baseDir = this.pathService.resolveLocationToUri(installLocation, wf);
+            if (!baseDir) {
+                return;
+            }
+
+            const metaUri = vscode.Uri.joinPath(baseDir, InstallationService.META_FILENAME);
+            let metadata: InstallMetadata = {};
+
+            // Read existing metadata
+            try {
+                const existing = new TextDecoder().decode(
+                    await vscode.workspace.fs.readFile(metaUri),
+                );
+                metadata = JSON.parse(existing);
+            } catch {
+                // File doesn't exist yet
+            }
+
+            metadata[item.name] = {
+                sha: item.file.sha || '',
+                installedAt: new Date().toISOString(),
+                sourceRepo: item.repo?.owner && item.repo?.repo
+                    ? {
+                        owner: item.repo.owner,
+                        repo: item.repo.repo,
+                        branch: item.repo.branch,
+                        filePath: item.file.path,
+                    }
+                    : undefined,
+            };
+
+            await vscode.workspace.fs.writeFile(
+                metaUri,
+                new TextEncoder().encode(JSON.stringify(metadata, null, 2)),
+            );
+        } catch {
+            // Non-critical — silently ignore metadata errors
+        }
+    }
+
+    /**
+     * Read install metadata for a given category + scope.
+     */
+    async readInstallMetadata(
+        category: ResourceCategory,
+        scope: InstallScope,
+    ): Promise<InstallMetadata> {
+        try {
+            const installLocation = this.pathService.getInstallLocationForScope(category, scope);
+            const wf = this.pathService.getWorkspaceFolderForLocation(installLocation);
+            const baseDir = this.pathService.resolveLocationToUri(installLocation, wf);
+            if (!baseDir) {
+                return {};
+            }
+
+            const metaUri = vscode.Uri.joinPath(baseDir, InstallationService.META_FILENAME);
+            const raw = new TextDecoder().decode(
+                await vscode.workspace.fs.readFile(metaUri),
+            );
+            return JSON.parse(raw);
+        } catch {
+            return {};
+        }
+    }
+
+    /**
+     * Read all install metadata across all categories and scopes.
+     */
+    async readAllInstallMetadata(): Promise<Map<string, InstallMetadata[string]>> {
+        const allMeta = new Map<string, InstallMetadata[string]>();
+
+        for (const category of Object.values(ResourceCategory)) {
+            for (const scope of ['local', 'global'] as InstallScope[]) {
+                const meta = await this.readInstallMetadata(category, scope);
+                for (const [name, entry] of Object.entries(meta)) {
+                    allMeta.set(name, entry);
+                }
+            }
+        }
+
+        return allMeta;
+    }
+
+    /**
+     * Remove install metadata for a given resource.
+     */
+    async removeInstallMetadata(resource: InstalledResource): Promise<void> {
+        try {
+            // Determine the category directory from the resource location
+            const parts = resource.location.split('/');
+            parts.pop(); // remove resource name
+            const categoryLocation = parts.join('/');
+
+            const wf = this.pathService.getWorkspaceFolderForLocation(categoryLocation);
+            const baseDir = this.pathService.resolveLocationToUri(categoryLocation, wf);
+            if (!baseDir) {
+                return;
+            }
+
+            const metaUri = vscode.Uri.joinPath(baseDir, InstallationService.META_FILENAME);
+            let metadata: InstallMetadata = {};
+
+            try {
+                const existing = new TextDecoder().decode(
+                    await vscode.workspace.fs.readFile(metaUri),
+                );
+                metadata = JSON.parse(existing);
+            } catch {
+                return;
+            }
+
+            delete metadata[resource.name];
+
+            await vscode.workspace.fs.writeFile(
+                metaUri,
+                new TextEncoder().encode(JSON.stringify(metadata, null, 2)),
+            );
+        } catch {
+            // Non-critical
+        }
+    }
+
+    /**
+     * Update an installed resource by re-downloading from its source repo.
+     */
+    async updateResource(
+        resource: InstalledResource,
+        marketplaceItem?: ResourceItem,
+    ): Promise<boolean> {
+        if (!resource.sourceRepo && !marketplaceItem) {
+            vscode.window.showWarningMessage(
+                `Cannot update "${resource.name}" — no source repository information available.`,
+            );
+            return false;
+        }
+
+        // If we have a marketplace item, use the normal install flow
+        if (marketplaceItem) {
+            // Silently overwrite by deleting existing first
+            try {
+                const wf = this.pathService.getWorkspaceFolderForLocation(resource.location);
+                const uri = this.pathService.resolveLocationToUri(resource.location, wf);
+                if (uri) {
+                    await vscode.workspace.fs.delete(uri, { recursive: true });
+                }
+            } catch {
+                // Ignore — may not exist
+            }
+
+            const success = await this.installResource(marketplaceItem, resource.scope);
+            if (success) {
+                vscode.window.showInformationMessage(
+                    `Updated "${resource.name}" to latest version`,
+                );
+            }
+            return success;
+        }
+
+        return false;
     }
 }

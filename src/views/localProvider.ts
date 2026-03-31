@@ -512,6 +512,10 @@ export class LocalTreeDataProvider
             const entries = await fs.readDirectory(categoryUri);
 
             for (const [name, type] of entries) {
+                // Skip hidden/metadata files
+                if (name.startsWith('.')) {
+                    continue;
+                }
                 if (category === ResourceCategory.Skills) {
                     // Skills are directories containing SKILL.md
                     if (!(type & vscode.FileType.Directory)) {

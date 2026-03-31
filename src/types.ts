@@ -126,6 +126,8 @@ export interface ResourceItem {
     description?: string;
     license?: string;
     compatibility?: string;
+    /** Tags/keywords for filtering (parsed from frontmatter). */
+    tags?: string[];
     bodyContent?: string;
     fullContent?: string;
 }
@@ -140,6 +142,22 @@ export interface InstalledResource {
     installedAt: string;
     /** Whether the resource is installed locally (workspace) or globally (home directory). */
     scope: InstallScope;
+    /** SHA hash of the resource at install time (for update detection). */
+    sha?: string;
+    /** Source repository info (for update detection). */
+    sourceRepo?: { owner: string; repo: string; branch: string; filePath: string };
+}
+
+/**
+ * Metadata persisted alongside installed resources for update tracking.
+ * Stored as `.ai-skills-meta.json` in the parent directory of the resource.
+ */
+export interface InstallMetadata {
+    [resourceName: string]: {
+        sha: string;
+        installedAt: string;
+        sourceRepo?: { owner: string; repo: string; branch: string; filePath: string };
+    };
 }
 
 // ── Git Trees API types (used for skills repos) ─────────────────
@@ -165,4 +183,26 @@ export interface GitTreeResponse {
 export interface CacheEntry<T> {
     data: T;
     timestamp: number;
+}
+
+// ── Resource Packs ──────────────────────────────────────────────
+
+/** A resource pack reference — one entry in a pack manifest. */
+export interface PackResourceRef {
+    /** Resource name (must match the name in the marketplace or local collection). */
+    name: string;
+    /** Optional category hint to speed up discovery. */
+    category?: ResourceCategory;
+    /** Optional repo hint as "owner/repo" to disambiguate. */
+    repo?: string;
+}
+
+/** A resource pack manifest. */
+export interface ResourcePack {
+    /** Pack display name. */
+    name: string;
+    /** Brief description. */
+    description?: string;
+    /** Resources in this pack. */
+    resources: PackResourceRef[];
 }

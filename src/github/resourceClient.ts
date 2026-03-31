@@ -210,6 +210,40 @@ export class ResourceClient {
         );
     }
 
+    /**
+     * Fetch the current SHA for a resource from GitHub.
+     * For single files, this returns the blob SHA.
+     * For skill folders, this returns the tree SHA of the directory.
+     */
+    async fetchResourceSha(
+        owner: string,
+        repo: string,
+        branch: string,
+        filePath: string,
+    ): Promise<string | undefined> {
+        try {
+            const url = `${ResourceClient.API_URL}/repos/${owner}/${repo}/contents/${filePath}?ref=${branch}`;
+            const response = await this.fetchWithAuth(url);
+            if (!response.ok) {
+                return undefined;
+            }
+            const data = (await response.json()) as { sha?: string } | unknown[];
+            // Contents API returns { sha } for both files and directories
+            if (Array.isArray(data)) {
+                // Directory listing – we need the tree SHA instead.
+                // Use the Git Trees API to get the directory SHA.
+                const tree = await this.fetchRepoTree({ owner, repo, branch, enabled: true });
+                const entry = tree.tree.find(
+                    (item) => item.path === filePath && item.type === 'tree',
+                );
+                return entry?.sha;
+            }
+            return data.sha;
+        } catch {
+            return undefined;
+        }
+    }
+
     /** Clear all cached data. */
     clearCache(): void {
         this.cache.clear();
@@ -295,6 +329,7 @@ export class ResourceClient {
                     item.description = parsed.description || 'No description available';
                     item.license = parsed.license;
                     item.compatibility = parsed.compatibility;
+                    item.tags = parsed.tags;
                     item.fullContent = content;
                     item.bodyContent = parsed.body;
                 } catch {
@@ -383,6 +418,7 @@ export class ResourceClient {
                 description: parsed.description || 'No description available',
                 license: parsed.license,
                 compatibility: parsed.compatibility,
+                tags: parsed.tags,
                 fullContent: content,
                 bodyContent: parsed.body,
             };
@@ -528,6 +564,7 @@ export class ResourceClient {
         description: string;
         license?: string;
         compatibility?: string;
+        tags?: string[];
         body: string;
     } {
         const frontmatterMatch = content.match(
@@ -546,11 +583,21 @@ export class ResourceClient {
             return match ? match[1].trim() : '';
         };
 
+        // Parse tags: support both comma-separated and YAML array formats
+        let tags: string[] | undefined;
+        const tagsRaw = get('tags');
+        if (tagsRaw) {
+            // Handle "tags: foo, bar, baz" or "tags: [foo, bar, baz]"
+            const cleaned = tagsRaw.replace(/^\[|\]$/g, '');
+            tags = cleaned.split(',').map((t) => t.trim()).filter(Boolean);
+        }
+
         return {
             name: get('name'),
             description: get('description'),
             license: get('license') || undefined,
             compatibility: get('compatibility') || undefined,
+            tags: tags && tags.length > 0 ? tags : undefined,
             body,
         };
     }

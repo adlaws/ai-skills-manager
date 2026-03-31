@@ -19,6 +19,18 @@ A one-stop-shop for **Chat Modes**, **Instructions**, **Prompts**, **Agents**, a
 - **Collection Management** — Add, toggle, or remove local collection folders via a quick-pick UI
 - **Per-Category Install Locations** — Each category installs to its own configurable folder (default: `.agents/<category>/`)
 - **GitHub Auth** — Supports personal access tokens and VS Code's built-in GitHub authentication for higher API rate limits
+- **Update Detection** — Automatically checks for upstream changes on installed resources and shows update badges in the Installed tree and detail panel
+- **One-Click Update** — Update individual resources or all outdated resources at once, with the option to compare changes before overwriting
+- **Resource Scaffolding** — Create new Chat Modes, Instructions, Prompts, Agents, or Skills from built-in templates with proper frontmatter and structure
+- **Favorites** — Star marketplace resources to bookmark them; favorites appear in a dedicated section at the top of the Marketplace tree
+- **Resource Packs** — Bundle multiple resources into a JSON manifest and install them all at once; create packs from your currently installed resources
+- **Diff Before Update** — When overwriting an existing resource, choose to compare the incoming and existing versions side-by-side in VS Code's diff editor before deciding
+- **Installed Resource Validation** — Run health checks across all installed resources to detect missing files, empty content, invalid frontmatter, or missing SKILL.md
+- **Export / Import Configuration** — Export your full extension configuration (repositories, collections, install locations, favorites) to a JSON file and import it on another machine, with merge or replace strategies
+- **Tag-Based Filtering** — Filter the Marketplace by tags extracted from resource frontmatter; active tag filters are shown in the tree title
+- **Status Bar Quick Access** — A status bar item shows the count of installed resources and available updates, with a click to open a quick-pick menu for common actions
+- **Resource Usage Detection** — Scan workspace files to discover which installed resources are actually referenced in configuration files like `copilot-instructions.md`, `settings.json`, `mcp.json`, `AGENTS.md`, and more
+- **Multi-Select** — Select multiple resources using Shift+Click (range) or Ctrl+Click (toggle) and perform bulk actions: install, uninstall, move, update, favorite, create packs, delete, and more
 
 ## Quick Start
 
@@ -147,6 +159,176 @@ Click the **gear** icon (⚙️) in the Marketplace title bar to:
 - **Toggle** repositories on/off
 - **Add** new repositories (full repo or skills-only)
 - **Remove** repositories you no longer need
+
+### Check for Updates
+
+The extension automatically checks for upstream changes after loading the Marketplace. You can also trigger a manual check:
+
+1. Click the **Check for Updates** icon (🔄) in the **Installed** title bar
+2. Resources with available updates show an **"Update available"** badge in the tree and in the detail panel
+3. Category nodes show the count of updatable resources (e.g. "2 updates")
+
+To update a resource:
+- Click **Update Resource** (⬇️) on any resource with an update badge, or
+- Click **Update All Resources** (🔄) in the Installed title bar to update everything at once
+
+When updating, if the resource already exists on disk, you'll be offered the option to **Compare** the incoming and existing versions in VS Code's diff editor before overwriting.
+
+### Create a New Resource
+
+1. Click the **+** icon in the **Installed** title bar, or run **AI Skills Manager: Create New Resource…** from the Command Palette
+2. Choose a resource category (Chat Mode, Instruction, Prompt, Agent, or Skill)
+3. Enter a name for the new resource
+4. Choose between **workspace** or **global** scope
+5. The resource is created with proper frontmatter / structure and opened in the editor
+
+Each category uses an appropriate template:
+- **Chat Modes** — `.chatmode` file with `name`, `description`, and `tools` frontmatter
+- **Instructions** — `.instructions.md` with `applyTo` and `description` frontmatter
+- **Prompts** — `.prompt.md` with `mode`, `description`, and `tools` frontmatter
+- **Agents** — `.md` agent file with `name`, `description`, and `tools` frontmatter
+- **Skills** — A folder containing `SKILL.md` with full frontmatter (name, description, license, compatibility)
+
+### Favorites
+
+Star resources in the Marketplace to keep them easy to find:
+
+1. Click the **star** icon (⭐) next to any Marketplace resource, or right-click and choose **Toggle Favorite**
+2. Favorited resources appear in a **Favorites** section at the top of the Marketplace tree
+3. To remove a favorite, click the star again or right-click and choose **Remove from Favorites**
+
+Favorites are stored globally and persist across sessions.
+
+### Resource Packs
+
+Resource packs let you bundle multiple resources into a single JSON file for easy sharing and bulk installation.
+
+#### Install a pack
+
+1. Run **AI Skills Manager: Install Resource Pack…** from the Command Palette
+2. Select a `.json` pack file from your filesystem
+3. Choose to install to **workspace** or **global** scope
+4. All resources listed in the pack are installed from their source repositories
+
+#### Create a pack
+
+1. Run **AI Skills Manager: Create Resource Pack from Installed…** from the Command Palette
+2. Select which installed resources to include (multi-select)
+3. Enter a name and description for the pack
+4. Save the pack as a `.json` file
+
+Pack file format:
+
+```json
+{
+  "name": "My Team Setup",
+  "description": "Standard AI resources for our team",
+  "resources": [
+    {
+      "owner": "github",
+      "repo": "awesome-copilot",
+      "branch": "main",
+      "category": "instructions",
+      "name": "copilot-instructions.instructions.md"
+    }
+  ]
+}
+```
+
+### Diff Before Update
+
+When installing or updating a resource that already exists on disk, the extension asks whether to overwrite:
+
+- **Overwrite** — Replace the existing file immediately
+- **Compare** — Open VS Code's diff editor showing the incoming content alongside your current version, so you can review changes before deciding
+- **Cancel** — Keep the existing version unchanged
+
+For skill folders (which contain multiple files), the comparison uses the `SKILL.md` file from each version.
+
+### Validate Installed Resources
+
+Run **AI Skills Manager: Validate Installed Resources** from the Command Palette to scan all installed resources for common issues:
+
+- **Missing files** — Expected file or folder not found on disk
+- **Empty content** — File exists but has no content
+- **Invalid frontmatter** — YAML frontmatter cannot be parsed (for `.md` resources)
+- **Missing SKILL.md** — Skill folder exists but has no `SKILL.md` file
+
+Results are shown in an information message listing any problems found, or confirming that all resources are healthy. Issues are also logged to the Output Channel.
+
+### Export / Import Configuration
+
+Share your extension setup across machines or with your team:
+
+#### Export
+
+1. Run **AI Skills Manager: Export Configuration…** from the Command Palette
+2. Choose a save location for the JSON file
+3. The export includes: repositories, local collections, install locations (local and global), favorites, and cache timeout
+
+#### Import
+
+1. Run **AI Skills Manager: Import Configuration…** from the Command Palette
+2. Select a previously exported JSON file
+3. Choose an import strategy:
+   - **Merge** — Adds new repositories, collections, and favorites alongside your existing ones (does not duplicate)
+   - **Replace** — Overwrites all settings with the imported values
+
+### Filter by Tag
+
+Resources with tags in their frontmatter (e.g. `tags: python, testing, automation`) can be filtered:
+
+1. Click the **tag** icon (🏷️) in the Marketplace title bar, or run **AI Skills Manager: Filter by Tag…**
+2. Select one or more tags from the list of all tags found across loaded resources
+3. The Marketplace tree shows only resources matching the selected tags
+4. Click the **clear** icon (✕) in the title bar or run **AI Skills Manager: Clear Tag Filter** to remove the filter
+
+### Status Bar Quick Access
+
+A status bar item appears showing the number of installed resources and available updates (e.g. `$(extensions) 12 ↑3`).
+
+Click the status bar item to open a quick-pick menu with common actions:
+- Check for Updates
+- Create New Resource
+- Validate Installed Resources
+- Export / Import Configuration
+- Detect Resource Usage
+- Open AI Skills Manager panel
+
+### Detect Resource Usage
+
+Run **AI Skills Manager: Detect Resource Usage** from the Command Palette to scan your workspace for references to installed resources. The extension searches for resource names in common configuration files:
+
+- `.github/copilot-instructions.md`
+- `.vscode/settings.json`
+- `.vscode/mcp.json`
+- `AGENTS.md`
+- `CLAUDE.md`
+- `.cursorrules`
+- Other well-known AI configuration files
+
+Results show which resources are referenced and where, helping you identify unused resources that can be cleaned up.
+
+### Multi-Select
+
+All three tree views (Marketplace, Local Collections, Installed) support multi-select:
+
+- **Shift+Click** — Select a contiguous range of items
+- **Ctrl+Click** (or **Cmd+Click** on Mac) — Toggle individual items in the selection
+
+When multiple items are selected, right-click to see the available bulk actions. The context menu adapts to the selection — only actions that make sense for all selected items are shown.
+
+**Marketplace / Local Collections** — Bulk actions on selected resources:
+- **Install to Workspace** / **Install Globally** — Install all selected resources at once
+- **Toggle Favorite** — Add or remove favorites for all selected items (Marketplace only)
+
+**Installed** — Bulk actions on selected installed resources:
+- **Remove** — Uninstall all selected resources (with a single confirmation prompt)
+- **Move to Global** / **Move to Workspace** — Move all selected resources between scopes
+- **Update** — Update all selected resources that have available updates
+- **Copy to Local Collection** — Copy all selected resources to a collection
+- **Create Resource Pack** — Create a pack from the selected resources
+- **Delete from Disk** — Delete all selected local collection resources (with one confirmation)
 
 ## Resource Categories
 
@@ -280,6 +462,20 @@ Available via Command Palette (`Ctrl+Shift+P`):
 | AI Skills Manager: Manage Local Collections | Toggle/add/remove local collection folders |
 | AI Skills Manager: Delete from Disk | Delete a resource from a local collection (permanent) |
 | AI Skills Manager: Disconnect Local Collection | Remove a collection from the configuration without deleting from disk |
+| AI Skills Manager: Update Resource | Update a single installed resource to the latest upstream version |
+| AI Skills Manager: Update All Resources | Update all installed resources that have available updates |
+| AI Skills Manager: Check for Updates | Manually check installed resources for upstream changes |
+| AI Skills Manager: Create New Resource… | Scaffold a new resource from a template (choose category, name, scope) |
+| AI Skills Manager: Toggle Favorite | Add or remove a marketplace resource from favorites |
+| AI Skills Manager: Remove from Favorites | Remove a resource from favorites |
+| AI Skills Manager: Install Resource Pack… | Install all resources defined in a pack JSON file |
+| AI Skills Manager: Create Resource Pack from Installed… | Create a pack JSON file from selected installed resources |
+| AI Skills Manager: Validate Installed Resources | Run health checks on all installed resources |
+| AI Skills Manager: Export Configuration… | Export extension settings to a JSON file |
+| AI Skills Manager: Import Configuration… | Import extension settings from a JSON file (merge or replace) |
+| AI Skills Manager: Filter by Tag… | Filter marketplace resources by tag |
+| AI Skills Manager: Clear Tag Filter | Remove the active tag filter |
+| AI Skills Manager: Detect Resource Usage | Scan workspace files for references to installed resources |
 
 ## Skill Directory Structure
 
@@ -301,12 +497,15 @@ name: My Awesome Skill
 description: A brief description of what this skill does
 license: MIT
 compatibility: Claude 3.5 Sonnet, Claude 3 Opus
+tags: python, testing, automation
 ---
 
 ## Usage
 
 Instructions on how to use this skill…
 ```
+
+The `tags` field is optional. Tags can be specified as a comma-separated string or a YAML array. Tags are used by the **Filter by Tag** feature in the Marketplace.
 
 ## Development
 
@@ -354,18 +553,23 @@ npm test
 
 ```
 src/
-├── types.ts                         # Shared types, enums, and constants
+├── types.ts                         # Shared types, enums, constants, and interfaces
 ├── github/
-│   └── resourceClient.ts            # GitHub API client (Contents + Trees)
+│   └── resourceClient.ts            # GitHub API client (Contents + Trees), tag extraction
 ├── services/
 │   ├── pathService.ts               # Install/scan location resolution
-│   └── installationService.ts       # Install / uninstall / open / copy resources
+│   ├── installationService.ts       # Install / uninstall / update / open / copy resources
+│   ├── scaffoldingService.ts        # Create new resources from category templates
+│   ├── packService.ts               # Install and create resource pack bundles
+│   ├── validationService.ts         # Health checks for installed resources
+│   ├── configService.ts             # Export / import extension configuration
+│   └── usageDetectionService.ts     # Scan workspace for resource references
 ├── views/
-│   ├── marketplaceProvider.ts        # 3-level tree: Repo → Category → Item
+│   ├── marketplaceProvider.ts        # 3-level tree: Repo → Category → Item (+ Favorites, tag filter)
 │   ├── localProvider.ts              # 3-level tree: Collection → Category → Item
-│   ├── installedProvider.ts          # 2-level tree: Category → Item
-│   └── resourceDetailPanel.ts        # Webview detail panel
-├── extension.ts                     # Entry point, command & watcher wiring
+│   ├── installedProvider.ts          # 2-level tree: Category → Item (+ update badges)
+│   └── resourceDetailPanel.ts        # Webview detail panel (+ update button)
+├── extension.ts                     # Entry point, commands, status bar, update checker
 └── test/
     ├── types.test.ts
     ├── pathService.test.ts
@@ -384,6 +588,15 @@ src/
 - **GitHub auth cascade**: Tries `aiSkillsManager.githubToken` first, then falls back to VS Code's built-in GitHub authentication (`vscode.authentication`).
 - **Install strategy**: Skills (folders) are fetched file-by-file and written to disk. Other resources are single-file downloads. Local collection installs use filesystem copy.
 - **Caching**: All API responses are cached in memory with a configurable TTL (`cacheTimeout`, default 1 hour).
+- **Update detection**: Install metadata (SHA hash and source repository info) is persisted alongside each installed resource in a `.ai-skills-meta.json` file. The extension compares local SHAs against upstream SHAs from GitHub to detect available updates.
+- **Favorites**: Stored in VS Code's `globalState` (key `aiSkillsManager.favorites`) as an array of `"owner/repo:category:name"` identifiers. Favorites persist across sessions and workspaces.
+- **Tag extraction**: Tags are parsed from the `tags` field in resource frontmatter (supports both comma-separated strings and YAML arrays). The tag index is built lazily from loaded marketplace data.
+- **Resource scaffolding**: Each category has a built-in template function that generates properly structured content with frontmatter. Skills create a folder with `SKILL.md`; all other categories create a single file.
+- **Resource packs**: A JSON manifest format (`{ name, description, resources[] }`) captures the source repository, category, and name of each resource. Pack installation resolves each entry against the marketplace and installs them sequentially.
+- **Validation**: Health checks iterate over all installed resources across all scopes, reading files from disk to verify existence, non-empty content, parseable YAML frontmatter (for `.md` files), and `SKILL.md` presence (for skill folders).
+- **Configuration export/import**: Exports capture a snapshot of all relevant settings. Import supports merge (additive, skips duplicates) and replace (full overwrite) strategies.
+- **Usage detection**: Scans well-known workspace files (e.g. `copilot-instructions.md`, `settings.json`, `mcp.json`, `AGENTS.md`, `CLAUDE.md`) for string matches of installed resource names.
+- **Status bar**: Shows installed count and update count; clicking opens a quick-pick menu with shortcuts to common actions.
 
 ## License
 
