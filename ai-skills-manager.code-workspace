@@ -1,0 +1,27 @@
+{
+    "folders": [
+        {
+            "path": "vscode",
+            "name": "VS Code Extension"
+        },
+        {
+            "path": "rider",
+            "name": "Rider Plugin"
+        },
+        {
+            "path": "shared",
+            "name": "Shared Assets"
+        },
+        {
+            "path": ".",
+            "name": "Root"
+        }
+    ],
+    "settings": {
+        "files.exclude": {
+            "vscode/": false,
+            "rider/": false,
+            "shared/": false
+        }
+    }
+}

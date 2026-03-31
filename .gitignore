@@ -1,5 +1,15 @@
-out
-dist
-node_modules
-.vscode-test/
+# VS Code extension build artifacts
+vscode/out
+vscode/dist
+vscode/node_modules
+vscode/.vscode-test/
+vscode/*.vsix
+
+# Rider plugin build artifacts
+rider/.gradle/
+rider/build/
+rider/.idea/
+
+# General
 *.vsix
+.agents/

@@ -1,0 +1,87 @@
+<idea-plugin>
+    <id>com.adlaws.aiskillsmanager</id>
+    <name>AI Skills Manager</name>
+    <vendor email="adlaws@users.noreply.github.com" url="https://github.com/adlaws/ai-skills-manager">adlaws</vendor>
+
+    <description><![CDATA[
+    One-stop-shop for discovering, installing, and managing AI development resources —
+    Chat Modes, Instructions, Prompts, Agents, and Skills — from GitHub repositories
+    with customizable install locations.
+
+    <ul>
+        <li><b>Resource Marketplace</b> — Browse resources from multiple GitHub repositories</li>
+        <li><b>Local Collections</b> — Browse resources from local folders on disk</li>
+        <li><b>One-Click Install</b> — Install to workspace or globally</li>
+        <li><b>Update Detection</b> — Automatic upstream change detection with one-click updates</li>
+        <li><b>Resource Scaffolding</b> — Create new resources from templates</li>
+        <li><b>Resource Packs</b> — Bundle and install multiple resources at once</li>
+        <li><b>Favorites</b> — Bookmark marketplace resources for quick access</li>
+        <li><b>Tag Filtering</b> — Filter by tags from resource frontmatter</li>
+    </ul>
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- Tool window for the main UI -->
+        <toolWindow id="AI Skills Manager"
+                    anchor="right"
+                    secondary="false"
+                    icon="/icons/skills-icon.svg"
+                    factoryClass="com.adlaws.aiskillsmanager.ui.AiSkillsToolWindowFactory"/>
+
+        <!-- Persistent settings -->
+        <applicationService
+                serviceImplementation="com.adlaws.aiskillsmanager.services.SettingsService"/>
+
+        <!-- Persistent application-level state (favorites, etc.) -->
+        <applicationService
+                serviceImplementation="com.adlaws.aiskillsmanager.services.StateService"/>
+
+        <!-- Settings UI -->
+        <applicationConfigurable
+                parentId="tools"
+                instance="com.adlaws.aiskillsmanager.ui.AiSkillsConfigurable"
+                id="com.adlaws.aiskillsmanager.settings"
+                displayName="AI Skills Manager"/>
+
+        <!-- Project-level service for workspace-scoped operations -->
+        <projectService
+                serviceImplementation="com.adlaws.aiskillsmanager.services.ProjectService"/>
+
+        <!-- Project-level scaffolding service -->
+        <projectService
+                serviceImplementation="com.adlaws.aiskillsmanager.services.ScaffoldingService"/>
+
+        <!-- Project-level pack service -->
+        <projectService
+                serviceImplementation="com.adlaws.aiskillsmanager.services.PackService"/>
+
+        <!-- Project-level validation service -->
+        <projectService
+                serviceImplementation="com.adlaws.aiskillsmanager.services.ValidationService"/>
+
+        <!-- Project-level config export/import service -->
+        <projectService
+                serviceImplementation="com.adlaws.aiskillsmanager.services.ConfigService"/>
+
+        <!-- Project-level usage detection service -->
+        <projectService
+                serviceImplementation="com.adlaws.aiskillsmanager.services.UsageDetectionService"/>
+
+        <!-- Status bar widget -->
+        <statusBarWidgetFactory
+                id="AiSkillsManager.StatusBar"
+                implementation="com.adlaws.aiskillsmanager.ui.AiSkillsStatusBarWidgetFactory"/>
+    </extensions>
+
+    <actions>
+        <group id="AiSkillsManager.MarketplaceActions" text="AI Skills Manager" popup="true">
+            <action id="AiSkillsManager.RefreshMarketplace"
+                    class="com.adlaws.aiskillsmanager.ui.actions.RefreshMarketplaceAction"
+                    text="Refresh Marketplace"
+                    description="Refresh the marketplace resource list"
+                    icon="AllIcons.Actions.Refresh"/>
+        </group>
+    </actions>
+</idea-plugin>
