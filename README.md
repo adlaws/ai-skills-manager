@@ -77,6 +77,111 @@ Both extensions provide the same core functionality:
 | Agents | Agent configurations | Agent config files |
 | Skills | Multi-file skill packages | Folders with `SKILL.md` |
 
+## Building Distribution Packages
+
+The repository includes build scripts that package both extensions for distribution. By default both are built; pass a flag to build only one.
+
+### Prerequisites
+
+#### VS Code Extension (`--vscode`)
+
+| Requirement | Version | Notes |
+|---|---|---|
+| [Node.js](https://nodejs.org/) | 22.x LTS or later | Includes `npm`. Used to install dependencies and run the `@vscode/vsce` packager. |
+| [Git](https://git-scm.com/) | Any recent version | Required by `vsce` during packaging. |
+
+#### Rider / JetBrains Plugin (`--rider`)
+
+| Requirement | Version | Notes |
+|---|---|---|
+| [JDK](https://adoptium.net/) | 17 or later | The Gradle build compiles Kotlin to JVM 17 bytecode (`sourceCompatibility = "17"`). |
+| [Gradle](https://gradle.org/) *(optional)* | 8.x+ | Only needed if the Gradle wrapper (`gradlew` / `gradlew.bat`) is missing from the `rider/` directory. The wrapper is included in the repo and is the preferred way to build. |
+
+> **Tip — checking prerequisites:**
+>
+> ```bash
+> # Node / npm
+> node --version    # expect v22.x+
+> npm --version
+>
+> # Java
+> java --version    # expect 17+
+> javac --version
+>
+> # Git
+> git --version
+> ```
+
+### Build Scripts
+
+| Platform | Script | Usage |
+|---|---|---|
+| Linux / macOS | `build_package.sh` | `./build_package.sh [--vscode] [--rider]` |
+| Windows (CMD) | `build_package.bat` | `build_package.bat [--vscode] [--rider]` |
+| Windows (PowerShell) | `build_package.ps1` | `.\build_package.ps1 [-VSCode] [-Rider]` |
+
+All three scripts perform the same steps:
+
+1. Clean previous artefacts from the project root.
+2. Build the VS Code extension (`.vsix`) — runs `npm install` then `npx @vscode/vsce package`.
+3. Build the Rider plugin (`.zip`) — runs `gradlew buildPlugin` (or `gradlew.bat` on Windows).
+4. Copy the resulting artefacts to the project root directory.
+
+### Linux / macOS
+
+```bash
+# Build both
+./build_package.sh
+
+# Build only the VS Code extension
+./build_package.sh --vscode
+
+# Build only the Rider plugin
+./build_package.sh --rider
+```
+
+### Windows — Command Prompt
+
+```cmd
+:: Build both
+build_package.bat
+
+:: Build only the VS Code extension
+build_package.bat --vscode
+
+:: Build only the Rider plugin
+build_package.bat --rider
+```
+
+### Windows — PowerShell
+
+```powershell
+# Build both
+.\build_package.ps1
+
+# Build only the VS Code extension
+.\build_package.ps1 -VSCode
+
+# Build only the Rider plugin
+.\build_package.ps1 -Rider
+```
+
+> **Note:** If PowerShell's execution policy blocks the script, run
+> `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` in the current session before invoking the script.
+
+### Output
+
+After a successful build, the artefacts are placed in the repository root:
+
+| Artefact | Example filename |
+|---|---|
+| VS Code extension | `ai-skills-manager-1.2.3.vsix` |
+| Rider plugin | `ai-skills-manager-rider-1.2.3.zip` |
+
+> NOTE: The version number `1.2.3` is an example only and will depend on the current version details.
+
+See [vscode/DEVELOPMENT.md](vscode/DEVELOPMENT.md) and [rider/README.md](rider/README.md) for detailed development, testing, and publishing instructions for each extension.
+
 ## Shared Assets (`shared/`)
 
 Contains icons and logos used by both extensions. Each extension copies or references these assets at build time.

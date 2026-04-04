@@ -9,7 +9,9 @@ vscode/*.vsix
 rider/.gradle/
 rider/build/
 rider/.idea/
+rider/*.zip
 
 # General
 *.vsix
+*.zip
 .agents/
