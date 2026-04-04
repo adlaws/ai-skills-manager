@@ -1,0 +1,10 @@
+{
+    "icons": {
+        "expui": {
+            "toolwindow": {
+                "skills-icon.svg": "icons/skills-icon.svg",
+                "skills-icon@20x20.svg": "icons/skills-icon.svg"
+            }
+        }
+    }
+}

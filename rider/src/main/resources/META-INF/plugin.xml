@@ -23,6 +23,9 @@
     <depends>com.intellij.modules.platform</depends>
 
     <extensions defaultExtensionNs="com.intellij">
+        <!-- New UI icon mapping -->
+        <iconMapper mappingFile="AiSkillsManagerIconMappings.json"/>
+
         <!-- Tool window for the main UI -->
         <toolWindow id="AI Skills Manager"
                     anchor="right"

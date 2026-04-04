@@ -6,6 +6,7 @@ import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
+import com.intellij.util.xmlb.XmlSerializerUtil
 
 /**
  * Application-level settings persisted across IDE restarts.
@@ -17,18 +18,15 @@ import com.intellij.openapi.components.Storage
 class SettingsService : PersistentStateComponent<SettingsService.State> {
 
     data class State(
-        var repositories: MutableList<RepositoryState> = mutableListOf(
-            RepositoryState("github", "awesome-copilot", label = "Awesome Copilot"),
-            RepositoryState("anthropics", "skills", skillsPath = "skills"),
-            RepositoryState("pytorch", "pytorch", skillsPath = ".claude/skills"),
-            RepositoryState("formulahendry", "agent-skill-code-runner", skillsPath = ".github/skills/code-runner", singleSkill = true)
-        ),
+        var repositories: MutableList<RepositoryState> = mutableListOf(),
         var localCollections: MutableList<LocalCollectionState> = mutableListOf(),
         var installLocations: MutableMap<String, String> = mutableMapOf(),
         var globalInstallLocations: MutableMap<String, String> = mutableMapOf(),
         var githubToken: String = "",
         var cacheTimeout: Int = 3600,
-        var localCollectionWatchInterval: Int = 30
+        var localCollectionWatchInterval: Int = 30,
+        /** Tracks whether the user has ever explicitly saved repos. False = use defaults. */
+        var repositoriesInitialized: Boolean = false
     )
 
     data class RepositoryState(
@@ -49,10 +47,25 @@ class SettingsService : PersistentStateComponent<SettingsService.State> {
 
     private var state = State()
 
+    init {
+        // Populate defaults on fresh construction (first install, no XML file yet)
+        ensureDefaultRepositories()
+    }
+
     override fun getState(): State = state
 
     override fun loadState(state: State) {
-        this.state = state
+        XmlSerializerUtil.copyBean(state, this.state)
+        // If the serializer produced null/empty repos and user never explicitly cleared them,
+        // restore defaults. This guards against IntelliJ's XML serializer dropping
+        // mutable collection defaults from Kotlin data classes.
+        ensureDefaultRepositories()
+    }
+
+    private fun ensureDefaultRepositories() {
+        if (state.repositories.isEmpty() && !state.repositoriesInitialized) {
+            state.repositories.addAll(DEFAULT_REPOSITORIES)
+        }
     }
 
     // ---- Read methods ----
@@ -85,10 +98,12 @@ class SettingsService : PersistentStateComponent<SettingsService.State> {
                       skillsPath: String? = null, singleSkill: Boolean = false, label: String? = null) {
         if (state.repositories.any { it.owner == owner && it.repo == repo }) return
         state.repositories.add(RepositoryState(owner, repo, branch, skillsPath, singleSkill, true, label))
+        state.repositoriesInitialized = true
     }
 
     fun removeRepository(owner: String, repo: String) {
         state.repositories.removeAll { it.owner == owner && it.repo == repo }
+        state.repositoriesInitialized = true
     }
 
     fun toggleRepository(owner: String, repo: String) {
@@ -132,6 +147,13 @@ class SettingsService : PersistentStateComponent<SettingsService.State> {
     }
 
     companion object {
+        val DEFAULT_REPOSITORIES = listOf(
+            RepositoryState("github", "awesome-copilot", label = "Awesome Copilot"),
+            RepositoryState("anthropics", "skills", skillsPath = "skills"),
+            RepositoryState("pytorch", "pytorch", skillsPath = ".claude/skills"),
+            RepositoryState("formulahendry", "agent-skill-code-runner", skillsPath = ".github/skills/code-runner", singleSkill = true)
+        )
+
         fun getInstance(): SettingsService =
             ApplicationManager.getApplication().getService(SettingsService::class.java)
     }

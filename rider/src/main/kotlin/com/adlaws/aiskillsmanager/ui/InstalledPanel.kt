@@ -19,16 +19,19 @@ import com.intellij.openapi.vfs.newvfs.BulkFileListener
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.treeStructure.Tree
+import com.intellij.util.ui.UIUtil
 import java.awt.BorderLayout
-import java.awt.Component
+import java.awt.CardLayout
 import java.awt.Desktop
+import java.awt.Font
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.nio.file.Files
 import java.nio.file.Paths
 import javax.swing.*
 import javax.swing.tree.DefaultMutableTreeNode
-import javax.swing.tree.DefaultTreeCellRenderer
+import com.intellij.ui.ColoredTreeCellRenderer
+import com.intellij.ui.SimpleTextAttributes
 import javax.swing.tree.DefaultTreeModel
 import javax.swing.tree.TreePath
 import javax.swing.tree.TreeSelectionModel
@@ -44,11 +47,36 @@ import javax.swing.tree.TreeSelectionModel
  */
 class InstalledPanel(private val project: Project) : Disposable {
 
+    private val LOG = com.intellij.openapi.diagnostic.Logger.getInstance(InstalledPanel::class.java)
+
     private val rootNode = DefaultMutableTreeNode("Installed")
     private val treeModel = DefaultTreeModel(rootNode)
     private val tree = Tree(treeModel)
+    private val detailPanel = ResourceDetailPanel(project)
 
     val component: JComponent
+
+    // Loading overlay
+    private val treeCard = JPanel(CardLayout())
+    private val CARD_TREE = "tree"
+    private val CARD_LOADING = "loading"
+    private val loadingLabel = JLabel("Scanning installed resources…", SwingConstants.CENTER).apply {
+        font = UIUtil.getLabelFont().deriveFont(Font.ITALIC, 12f)
+        foreground = UIUtil.getInactiveTextColor()
+        icon = com.intellij.icons.AllIcons.Process.Step_1
+    }
+    private var spinnerTimer: Timer? = null
+    private val spinnerIcons = arrayOf(
+        com.intellij.icons.AllIcons.Process.Step_1,
+        com.intellij.icons.AllIcons.Process.Step_2,
+        com.intellij.icons.AllIcons.Process.Step_3,
+        com.intellij.icons.AllIcons.Process.Step_4,
+        com.intellij.icons.AllIcons.Process.Step_5,
+        com.intellij.icons.AllIcons.Process.Step_6,
+        com.intellij.icons.AllIcons.Process.Step_7,
+        com.intellij.icons.AllIcons.Process.Step_8
+    )
+    private var spinnerFrame = 0
 
     private var installedResources: List<InstalledResource> = emptyList()
     private var updatableNames: Set<String> = emptySet()
@@ -66,22 +94,42 @@ class InstalledPanel(private val project: Project) : Disposable {
         tree.cellRenderer = InstalledCellRenderer()
         tree.selectionModel.selectionMode = TreeSelectionModel.DISCONTIGUOUS_TREE_SELECTION
 
-        // Context menu
+        // Mouse handler: left click → detail panel, right click → context menu, double-click → open
         tree.addMouseListener(object : MouseAdapter() {
-            override fun mousePressed(e: MouseEvent) { handlePopup(e) }
-            override fun mouseReleased(e: MouseEvent) { handlePopup(e) }
-            override fun mouseClicked(e: MouseEvent) {
-                if (e.clickCount == 2) {
-                    val node = tree.lastSelectedPathComponent as? DefaultMutableTreeNode ?: return
+            override fun mousePressed(e: MouseEvent) {
+                if (e.isPopupTrigger) { handlePopup(e); return }
+                if (SwingUtilities.isLeftMouseButton(e)) {
+                    val path = tree.getPathForLocation(e.x, e.y) ?: return
+                    val node = path.lastPathComponent as? DefaultMutableTreeNode ?: return
                     val data = node.userObject as? InstalledNodeData ?: return
-                    openResource(data.resource)
+                    if (e.clickCount == 2) {
+                        openResource(data.resource)
+                    } else {
+                        SwingUtilities.invokeLater { detailPanel.showInstalledResource(data.resource) }
+                    }
                 }
             }
+            override fun mouseReleased(e: MouseEvent) { handlePopup(e) }
         })
 
-        val panel = JPanel(BorderLayout())
-        panel.add(JBScrollPane(tree), BorderLayout.CENTER)
-        component = panel
+        // Build the tree area with loading overlay
+        val treeScrollPane = JBScrollPane(tree)
+        val loadingPanel = JPanel(BorderLayout()).apply {
+            add(loadingLabel, BorderLayout.CENTER)
+        }
+        treeCard.add(treeScrollPane, CARD_TREE)
+        treeCard.add(loadingPanel, CARD_LOADING)
+        showTreeCard()
+
+        val treePanel = JPanel(BorderLayout())
+        treePanel.add(treeCard, BorderLayout.CENTER)
+
+        // Split pane: tree on top, detail on bottom
+        val splitPane = JSplitPane(JSplitPane.VERTICAL_SPLIT, treePanel, detailPanel)
+        splitPane.resizeWeight = 0.55
+        splitPane.dividerSize = 5
+        splitPane.isContinuousLayout = true
+        component = splitPane
 
         // Register VFS listener to auto-refresh when install directories change
         val connection = project.messageBus.connect(this)
@@ -104,7 +152,14 @@ class InstalledPanel(private val project: Project) : Disposable {
                 }
             }
         })
+        // NOTE: Initial load is deferred — call loadResources() after setting onInstalledChanged
+    }
 
+    /**
+     * Trigger the initial scan. Call this AFTER setting [onInstalledChanged]
+     * so the callback fires correctly on the first load.
+     */
+    fun loadResources() {
         loadInstalled()
     }
 
@@ -125,6 +180,24 @@ class InstalledPanel(private val project: Project) : Disposable {
 
     override fun dispose() {
         pendingRefresh?.cancel()
+        spinnerTimer?.stop()
+    }
+
+    private fun showLoadingCard() {
+        (treeCard.layout as CardLayout).show(treeCard, CARD_LOADING)
+        spinnerFrame = 0
+        spinnerTimer?.stop()
+        spinnerTimer = Timer(100) {
+            spinnerFrame = (spinnerFrame + 1) % spinnerIcons.size
+            loadingLabel.icon = spinnerIcons[spinnerFrame]
+        }
+        spinnerTimer?.start()
+    }
+
+    private fun showTreeCard() {
+        spinnerTimer?.stop()
+        spinnerTimer = null
+        (treeCard.layout as CardLayout).show(treeCard, CARD_TREE)
     }
 
     fun refresh() {
@@ -267,9 +340,6 @@ class InstalledPanel(private val project: Project) : Disposable {
             menu.add(JMenuItem("Open Resource").apply {
                 addActionListener { openResource(resource) }
             })
-            menu.add(JMenuItem("View Details").apply {
-                addActionListener { viewInstalledDetails(resource) }
-            })
             menu.addSeparator()
 
             if (hasUpdate) {
@@ -410,35 +480,6 @@ class InstalledPanel(private val project: Project) : Disposable {
     private fun openFileInEditor(path: java.nio.file.Path) {
         val vf = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(path) ?: return
         FileEditorManager.getInstance(project).openFile(vf, true)
-    }
-
-    private fun viewInstalledDetails(resource: InstalledResource) {
-        ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Loading details…", false) {
-            override fun run(indicator: ProgressIndicator) {
-                val path = Paths.get(resource.path)
-                val content = try {
-                    if (Files.isDirectory(path)) {
-                        val skillMd = path.resolve("SKILL.md")
-                        if (Files.exists(skillMd)) Files.readString(skillMd) else null
-                    } else {
-                        Files.readString(path)
-                    }
-                } catch (_: Exception) { null }
-
-                val item = ResourceItem(
-                    name = resource.name,
-                    category = resource.category,
-                    path = resource.path,
-                    content = content,
-                    fullContent = content,
-                    isFolder = Files.isDirectory(path)
-                )
-
-                ApplicationManager.getApplication().invokeLater {
-                    ResourceDetailPanel.show(project, item, null)
-                }
-            }
-        })
     }
 
     private fun uninstallResource(resource: InstalledResource) {
@@ -628,27 +669,29 @@ class InstalledPanel(private val project: Project) : Disposable {
 
     // ---- Cell renderer ----
 
-    private class InstalledCellRenderer : DefaultTreeCellRenderer() {
-        override fun getTreeCellRendererComponent(
+    private class InstalledCellRenderer : ColoredTreeCellRenderer() {
+        override fun customizeCellRenderer(
             tree: JTree, value: Any?, selected: Boolean,
             expanded: Boolean, leaf: Boolean, row: Int, hasFocus: Boolean
-        ): Component {
-            super.getTreeCellRendererComponent(tree, value, selected, expanded, leaf, row, hasFocus)
-            val node = value as? DefaultMutableTreeNode ?: return this
+        ) {
+            val node = value as? DefaultMutableTreeNode ?: return
             when (val data = node.userObject) {
                 is InstalledNodeData -> {
                     val r = data.resource
                     val scope = if (r.scope == InstallScope.GLOBAL) "🌐" else "📁"
-                    val update = if (data.hasUpdate) " ⬆" else ""
-                    text = "$scope ${r.name}$update"
+                    append("$scope ${r.name}", SimpleTextAttributes.REGULAR_ATTRIBUTES)
+                    if (data.hasUpdate) append(" ⬆", SimpleTextAttributes(SimpleTextAttributes.STYLE_BOLD, java.awt.Color(0x58, 0x9d, 0xf6)))
                     toolTipText = "${r.path} [${if (r.scope == InstallScope.GLOBAL) "Global" else "Workspace"}]"
                     icon = null
                 }
                 is CategoryNodeData -> {
+                    val update = if (data.updateCount > 0) " — ${data.updateCount} update(s)" else ""
+                    append("${data.category.label}", SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
+                    append(" (${data.count})", SimpleTextAttributes.GRAYED_ATTRIBUTES)
+                    if (update.isNotEmpty()) append(update, SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, java.awt.Color(0x58, 0x9d, 0xf6)))
                     icon = null
                 }
             }
-            return this
         }
     }
 }

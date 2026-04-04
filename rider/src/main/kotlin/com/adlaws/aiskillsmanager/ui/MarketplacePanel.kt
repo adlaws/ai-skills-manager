@@ -3,20 +3,24 @@ package com.adlaws.aiskillsmanager.ui
 import com.adlaws.aiskillsmanager.model.*
 import com.adlaws.aiskillsmanager.services.*
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
+import com.intellij.ui.ColoredTreeCellRenderer
 import com.intellij.ui.SearchTextField
+import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.treeStructure.Tree
+import com.intellij.util.ui.UIUtil
 import java.awt.BorderLayout
-import java.awt.Component
+import java.awt.CardLayout
+import java.awt.Font
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.*
 import javax.swing.tree.DefaultMutableTreeNode
-import javax.swing.tree.DefaultTreeCellRenderer
 import javax.swing.tree.DefaultTreeModel
 import javax.swing.tree.TreePath
 import javax.swing.tree.TreeSelectionModel
@@ -24,21 +28,31 @@ import javax.swing.tree.TreeSelectionModel
 /**
  * Marketplace tree panel — Favorites → Repo → Category → Resource items.
  *
- * Mirrors the VS Code extension's `marketplaceProvider.ts`:
- * - Async loading with progress indicator
- * - Search/filter by text and tags
- * - Favorites section at top
- * - Context menu: Install, Install Globally, Toggle Favorite, View Details
- * - Custom cell renderer with icons
+ * Layout: top/bottom split pane. Top half is the tree with search bar,
+ * bottom half is the detail panel showing selected resource info + install buttons.
+ * A loading overlay with spinner appears while repos are being fetched.
  */
 class MarketplacePanel(private val project: Project) {
+
+    private val LOG = Logger.getInstance(MarketplacePanel::class.java)
 
     private val rootNode = DefaultMutableTreeNode("Marketplace")
     private val treeModel = DefaultTreeModel(rootNode)
     private val tree = Tree(treeModel)
     private val searchField = SearchTextField()
+    private val detailPanel = ResourceDetailPanel(project)
 
     val component: JComponent
+
+    // Loading overlay
+    private val treeCard = JPanel(CardLayout())
+    private val CARD_TREE = "tree"
+    private val CARD_LOADING = "loading"
+    private val loadingLabel = JLabel("Loading marketplace resources…", SwingConstants.CENTER).apply {
+        font = UIUtil.getLabelFont().deriveFont(Font.ITALIC, 12f)
+        foreground = UIUtil.getInactiveTextColor()
+        icon = com.intellij.icons.AllIcons.Process.Step_1  // static spinner frame as placeholder
+    }
 
     // Data state
     private var allData: Map<String, Map<ResourceCategory, List<ResourceItem>>> = emptyMap()
@@ -49,11 +63,27 @@ class MarketplacePanel(private val project: Project) {
     private val resourceClient = ResourceClient()
     private var loaded = false
 
+    // Animated spinner support
+    private var spinnerTimer: Timer? = null
+    private val spinnerIcons = arrayOf(
+        com.intellij.icons.AllIcons.Process.Step_1,
+        com.intellij.icons.AllIcons.Process.Step_2,
+        com.intellij.icons.AllIcons.Process.Step_3,
+        com.intellij.icons.AllIcons.Process.Step_4,
+        com.intellij.icons.AllIcons.Process.Step_5,
+        com.intellij.icons.AllIcons.Process.Step_6,
+        com.intellij.icons.AllIcons.Process.Step_7,
+        com.intellij.icons.AllIcons.Process.Step_8
+    )
+    private var spinnerFrame = 0
+
     init {
         tree.isRootVisible = false
         tree.showsRootHandles = true
         tree.cellRenderer = MarketplaceCellRenderer()
         tree.selectionModel.selectionMode = TreeSelectionModel.DISCONTIGUOUS_TREE_SELECTION
+
+        detailPanel.setResourceClient(resourceClient)
 
         // Search field
         searchField.addDocumentListener(object : com.intellij.ui.DocumentAdapter() {
@@ -63,27 +93,44 @@ class MarketplacePanel(private val project: Project) {
             }
         })
 
-        // Context menu
+        // Mouse handler: left click → detail panel, right click → context menu
         tree.addMouseListener(object : MouseAdapter() {
-            override fun mousePressed(e: MouseEvent) { handlePopup(e) }
-            override fun mouseReleased(e: MouseEvent) { handlePopup(e) }
-            override fun mouseClicked(e: MouseEvent) {
-                if (e.clickCount == 2) {
-                    val node = tree.lastSelectedPathComponent as? DefaultMutableTreeNode ?: return
-                    val item = node.userObject as? ResourceNodeData ?: return
-                    viewDetails(item.resourceItem)
+            override fun mousePressed(e: MouseEvent) {
+                if (e.isPopupTrigger) { handlePopup(e); return }
+                if (SwingUtilities.isLeftMouseButton(e) && e.clickCount == 1) {
+                    val path = tree.getPathForLocation(e.x, e.y) ?: return
+                    val node = path.lastPathComponent as? DefaultMutableTreeNode ?: return
+                    val data = node.userObject as? ResourceNodeData ?: return
+                    SwingUtilities.invokeLater { detailPanel.showItem(data.resourceItem) }
                 }
             }
+            override fun mouseReleased(e: MouseEvent) { handlePopup(e) }
         })
+
+        // Build the tree area with loading overlay
+        val treeScrollPane = JBScrollPane(tree)
+        val loadingPanel = JPanel(BorderLayout()).apply {
+            add(loadingLabel, BorderLayout.CENTER)
+        }
+        treeCard.add(treeScrollPane, CARD_TREE)
+        treeCard.add(loadingPanel, CARD_LOADING)
+        showTreeCard()
 
         val toolbar = JPanel(BorderLayout()).apply {
             add(searchField, BorderLayout.CENTER)
         }
 
-        val panel = JPanel(BorderLayout())
-        panel.add(toolbar, BorderLayout.NORTH)
-        panel.add(JBScrollPane(tree), BorderLayout.CENTER)
-        component = panel
+        val treePanel = JPanel(BorderLayout())
+        treePanel.add(toolbar, BorderLayout.NORTH)
+        treePanel.add(treeCard, BorderLayout.CENTER)
+
+        // Split pane: tree on top, detail on bottom
+        val splitPane = JSplitPane(JSplitPane.VERTICAL_SPLIT, treePanel, detailPanel)
+        splitPane.resizeWeight = 0.55
+        splitPane.dividerSize = 5
+        splitPane.isContinuousLayout = true
+
+        component = splitPane
     }
 
     fun loadResources() {
@@ -93,19 +140,55 @@ class MarketplacePanel(private val project: Project) {
     }
 
     fun refresh() {
+        LOG.info("refresh() called, loaded=$loaded")
+        showLoadingCard()
         ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Loading Marketplace Resources…", true) {
             override fun run(indicator: ProgressIndicator) {
                 indicator.isIndeterminate = true
-                resourceClient.syncSettings()
-                val (data, failed) = resourceClient.fetchAllResources()
-                allData = data
-                failedRepos = failed
+                try {
+                    resourceClient.syncSettings()
+                    val (data, failed) = resourceClient.fetchAllResources()
+                    LOG.info("refresh: got ${data.size} repos, ${failed.size} failed")
+                    allData = data
+                    failedRepos = failed
 
-                ApplicationManager.getApplication().invokeLater {
-                    rebuildTree()
+                    ApplicationManager.getApplication().invokeLater {
+                        rebuildTree()
+                        showTreeCard()
+                    }
+                } catch (e: Exception) {
+                    LOG.error("refresh FAILED", e)
+                    ApplicationManager.getApplication().invokeLater {
+                        showTreeCard()
+                    }
                 }
             }
         })
+    }
+
+    private fun showLoadingCard() {
+        (treeCard.layout as CardLayout).show(treeCard, CARD_LOADING)
+        startSpinner()
+    }
+
+    private fun showTreeCard() {
+        stopSpinner()
+        (treeCard.layout as CardLayout).show(treeCard, CARD_TREE)
+    }
+
+    private fun startSpinner() {
+        spinnerFrame = 0
+        spinnerTimer?.stop()
+        spinnerTimer = Timer(100) {
+            spinnerFrame = (spinnerFrame + 1) % spinnerIcons.size
+            loadingLabel.icon = spinnerIcons[spinnerFrame]
+        }
+        spinnerTimer?.start()
+    }
+
+    private fun stopSpinner() {
+        spinnerTimer?.stop()
+        spinnerTimer = null
     }
 
     fun setSearchQuery(query: String) {
@@ -218,19 +301,16 @@ class MarketplacePanel(private val project: Project) {
         if (!e.isPopupTrigger) return
         val path = tree.getPathForLocation(e.x, e.y) ?: return
 
-        // If the right-clicked node is not in the current selection, select only it
         if (!tree.isPathSelected(path)) {
             tree.selectionPath = path
         }
 
-        // Gather all selected resource nodes
         val selectedItems = getSelectedResourceItems()
         if (selectedItems.isEmpty()) return
 
         val menu = JPopupMenu()
 
         if (selectedItems.size > 1) {
-            // Bulk actions
             menu.add(JMenuItem("Install ${selectedItems.size} to Workspace").apply {
                 addActionListener { selectedItems.forEach { installItem(it, InstallScope.WORKSPACE) } }
             })
@@ -264,11 +344,6 @@ class MarketplacePanel(private val project: Project) {
                     stateService.toggleFavorite(favId)
                     rebuildTree()
                 }
-            })
-            menu.addSeparator()
-
-            menu.add(JMenuItem("View Details").apply {
-                addActionListener { viewDetails(item) }
             })
         }
 
@@ -304,28 +379,6 @@ class MarketplacePanel(private val project: Project) {
         })
     }
 
-    private fun viewDetails(item: ResourceItem) {
-        // Fetch content if not yet loaded
-        ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Loading details…", false) {
-            override fun run(indicator: ProgressIndicator) {
-                val content = if (item.isFolder) {
-                    item.fullContent ?: resourceClient.fetchRawContent(
-                        item.repoOwner, item.repoName, item.repoBranch, "${item.path}/SKILL.md"
-                    )
-                } else {
-                    item.content ?: resourceClient.fetchRawContent(
-                        item.repoOwner, item.repoName, item.repoBranch, item.path
-                    )
-                }
-                val enrichedItem = item.copy(content = content, fullContent = content)
-
-                ApplicationManager.getApplication().invokeLater {
-                    ResourceDetailPanel.show(project, enrichedItem, resourceClient)
-                }
-            }
-        })
-    }
-
     private fun buildFavoriteId(item: ResourceItem): String =
         "${item.repoOwner}/${item.repoName}:${item.category.id}:${item.name}"
 
@@ -353,43 +406,45 @@ class MarketplacePanel(private val project: Project) {
 
     // ---- Cell renderer ----
 
-    private class MarketplaceCellRenderer : DefaultTreeCellRenderer() {
-        override fun getTreeCellRendererComponent(
+    private class MarketplaceCellRenderer : ColoredTreeCellRenderer() {
+        override fun customizeCellRenderer(
             tree: JTree, value: Any?, selected: Boolean,
             expanded: Boolean, leaf: Boolean, row: Int, hasFocus: Boolean
-        ): Component {
-            super.getTreeCellRendererComponent(tree, value, selected, expanded, leaf, row, hasFocus)
-            val node = value as? DefaultMutableTreeNode ?: return this
+        ) {
+            val node = value as? DefaultMutableTreeNode ?: return
             when (val data = node.userObject) {
                 is ResourceNodeData -> {
                     val item = data.resourceItem
-                    text = buildString {
-                        append(item.name)
-                        if (data.isInstalled) append(" ✓")
-                        if (data.isFavorite) append(" ⭐")
+                    append(item.name, SimpleTextAttributes.REGULAR_ATTRIBUTES)
+                    if (data.isInstalled) append(" ✓", SimpleTextAttributes.GRAY_ATTRIBUTES)
+                    if (data.isFavorite) append(" ⭐", SimpleTextAttributes.REGULAR_ATTRIBUTES)
+                    if (!item.description.isNullOrBlank()) {
+                        append("  ${item.description}", SimpleTextAttributes.GRAYED_ATTRIBUTES)
                     }
                     toolTipText = item.description ?: item.name
                     icon = null
                 }
                 is CategoryNodeData -> {
-                    text = "${data.category.label} (${data.count})"
+                    append(data.category.label, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
+                    append(" (${data.count})", SimpleTextAttributes.GRAYED_ATTRIBUTES)
                     icon = null
                 }
                 is RepoNodeData -> {
-                    text = data.label
+                    append(data.label, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
                     toolTipText = data.key
                     icon = null
                 }
                 is SectionNodeData -> {
-                    text = data.toString()
+                    append(data.label, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
+                    append(" (${data.count})", SimpleTextAttributes.GRAYED_ATTRIBUTES)
                     icon = null
                 }
                 is FailedRepoNodeData -> {
-                    text = data.toString()
+                    append("⚠ ${data.key}", SimpleTextAttributes.ERROR_ATTRIBUTES)
+                    append(" (failed to load)", SimpleTextAttributes.GRAYED_ATTRIBUTES)
                     icon = null
                 }
             }
-            return this
         }
     }
 }

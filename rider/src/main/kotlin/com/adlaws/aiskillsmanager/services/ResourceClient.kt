@@ -2,9 +2,12 @@ package com.adlaws.aiskillsmanager.services
 
 import com.adlaws.aiskillsmanager.model.*
 import com.google.gson.JsonParser
+import com.intellij.openapi.diagnostic.Logger
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
 
 /**
@@ -20,9 +23,14 @@ import java.util.concurrent.TimeUnit
  */
 class ResourceClient {
 
+    private val LOG = Logger.getInstance(ResourceClient::class.java)
+
+    // Thread pool for parallel HTTP requests (mirrors VS Code's Promise.all/allSettled)
+    private val executor = Executors.newFixedThreadPool(8)
+
     private val client = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
     // Simple in-memory cache: key → (data, timestamp)
@@ -55,20 +63,30 @@ class ResourceClient {
         syncSettings()
         val settings = SettingsService.getInstance()
         val repos = settings.getRepositories().filter { it.enabled }
-        val results = mutableMapOf<String, Map<ResourceCategory, List<ResourceItem>>>()
-        val failed = mutableSetOf<String>()
+        LOG.info("fetchAllResources: ${repos.size} enabled repos: ${repos.map { it.key }}")
+        val results = ConcurrentHashMap<String, Map<ResourceCategory, List<ResourceItem>>>()
+        val failed = ConcurrentHashMap.newKeySet<String>()
 
-        for (repo in repos) {
-            try {
-                val data = fetchResources(repo)
-                if (data.isNotEmpty()) {
-                    results[repo.key] = data
+        // Fetch all repos in parallel
+        val futures = repos.map { repo ->
+            executor.submit {
+                try {
+                    LOG.info("  Fetching repo: ${repo.key} (skillsPath=${repo.skillsPath}, singleSkill=${repo.singleSkill})")
+                    val data = fetchResources(repo)
+                    LOG.info("  Result for ${repo.key}: ${data.size} categories, ${data.values.sumOf { it.size }} items")
+                    if (data.isNotEmpty()) {
+                        results[repo.key] = data
+                    }
+                } catch (e: Exception) {
+                    LOG.warn("  FAILED repo ${repo.key}: ${e.message}", e)
+                    failed.add(repo.key)
                 }
-            } catch (_: Exception) {
-                failed.add(repo.key)
             }
         }
-        return results to failed
+        // Wait for all repo fetches to complete
+        futures.forEach { it.get() }
+        LOG.info("fetchAllResources done: ${results.size} repos loaded, ${failed.size} failed")
+        return results.toMap() to failed.toSet()
     }
 
     /**
@@ -118,30 +136,36 @@ class ResourceClient {
         val json = httpGet(treeUrl) ?: return emptyList()
 
         val prefix = skillPath.trimEnd('/') + "/"
-        val files = mutableListOf<Pair<String, String>>()
 
         try {
             val root = JsonParser.parseString(json).asJsonObject
             val tree = root.getAsJsonArray("tree") ?: return emptyList()
 
+            // Collect all blob paths under the skill folder
+            val blobPaths = mutableListOf<Pair<String, String>>() // (relativePath, fullPath)
             for (element in tree) {
                 val item = element.asJsonObject
                 val itemPath = item.get("path")?.asString ?: continue
                 val type = item.get("type")?.asString ?: continue
 
                 if (type == "blob" && itemPath.startsWith(prefix)) {
-                    val relativePath = itemPath.removePrefix(prefix)
-                    val content = fetchRawContent(repo.owner, repo.repo, repo.branch, itemPath)
-                    if (content != null) {
-                        files.add(relativePath to content)
-                    }
+                    blobPaths.add(itemPath.removePrefix(prefix) to itemPath)
                 }
             }
+
+            // Fetch all file contents in parallel (mirrors VS Code's Promise.all)
+            val futures = blobPaths.map { (relativePath, fullPath) ->
+                executor.submit<Pair<String, String>?> {
+                    val content = fetchRawContent(repo.owner, repo.repo, repo.branch, fullPath)
+                    if (content != null) relativePath to content else null
+                }
+            }
+            return futures.mapNotNull { it.get() }
         } catch (_: Exception) {
             // Failed to parse tree
         }
 
-        return files
+        return emptyList()
     }
 
     /**
@@ -154,26 +178,30 @@ class ResourceClient {
     // ---- Private implementation ----
 
     private fun fetchViaContentsApi(repo: ResourceRepository): Map<ResourceCategory, List<ResourceItem>> {
-        val result = mutableMapOf<ResourceCategory, List<ResourceItem>>()
-        for (category in ResourceCategory.entries) {
-            val url = "https://api.github.com/repos/${repo.owner}/${repo.repo}/contents/${category.id}?ref=${repo.branch}"
-            val json = httpGet(url) ?: continue
-            try {
-                val items = parseContentsResponse(json, repo, category)
-                if (items.isNotEmpty()) {
-                    // Enrich skill items with SKILL.md frontmatter
-                    val enriched = if (category == ResourceCategory.SKILLS) {
-                        enrichSkillItems(items, repo)
-                    } else {
-                        items
+        val result = ConcurrentHashMap<ResourceCategory, List<ResourceItem>>()
+
+        // Fetch all categories in parallel (mirrors VS Code's Promise.allSettled)
+        val futures = ResourceCategory.entries.map { category ->
+            executor.submit {
+                try {
+                    val url = "https://api.github.com/repos/${repo.owner}/${repo.repo}/contents/${category.id}?ref=${repo.branch}"
+                    val json = httpGet(url) ?: return@submit
+                    val items = parseContentsResponse(json, repo, category)
+                    if (items.isNotEmpty()) {
+                        val enriched = if (category == ResourceCategory.SKILLS) {
+                            enrichSkillItems(items, repo)
+                        } else {
+                            items
+                        }
+                        result[category] = enriched
                     }
-                    result[category] = enriched
+                } catch (_: Exception) {
+                    // Skip categories that don't exist or fail to parse
                 }
-            } catch (_: Exception) {
-                // Skip categories that don't exist or fail to parse
             }
         }
-        return result
+        futures.forEach { it.get() }
+        return result.toMap()
     }
 
     private fun fetchViaTreesApi(repo: ResourceRepository): Map<ResourceCategory, List<ResourceItem>> {
@@ -255,40 +283,50 @@ class ResourceClient {
                 }
             }
 
-            // For each SKILL.md, fetch content and parse metadata
-            for (skillMdPath in skillMdPaths) {
-                val skillDirPath = skillMdPath.removeSuffix("/SKILL.md")
-                val skillName = skillDirPath.substringAfterLast('/')
-                val content = fetchRawContent(repo.owner, repo.repo, repo.branch, skillMdPath)
-                val meta = if (content != null) parseSkillMd(content) else emptyMap()
+            // Pre-build SHA lookup map from tree (avoids repeated scans)
+            val dirShaMap = mutableMapOf<String, String>()
+            for (element in tree) {
+                val item = element.asJsonObject
+                if (item.get("type")?.asString == "tree") {
+                    val path = item.get("path")?.asString ?: continue
+                    val sha = item.get("sha")?.asString ?: continue
+                    dirShaMap[path] = sha
+                }
+            }
 
-                // Find SHA for the directory from the tree
-                var dirSha: String? = null
-                for (element in tree) {
-                    val item = element.asJsonObject
-                    if (item.get("path")?.asString == skillDirPath && item.get("type")?.asString == "tree") {
-                        dirSha = item.get("sha")?.asString
-                        break
+            // Fetch all SKILL.md content in parallel (mirrors VS Code's Promise.all)
+            val futures = skillMdPaths.map { skillMdPath ->
+                executor.submit<ResourceItem?> {
+                    try {
+                        val skillDirPath = skillMdPath.removeSuffix("/SKILL.md")
+                        val skillName = skillDirPath.substringAfterLast('/')
+                        val content = fetchRawContent(repo.owner, repo.repo, repo.branch, skillMdPath)
+                        val meta = if (content != null) parseSkillMd(content) else emptyMap()
+
+                        ResourceItem(
+                            name = meta["name"] ?: skillName,
+                            category = ResourceCategory.SKILLS,
+                            path = skillDirPath,
+                            repoOwner = repo.owner,
+                            repoName = repo.repo,
+                            repoBranch = repo.branch,
+                            sha = dirShaMap[skillDirPath],
+                            description = meta["description"],
+                            license = meta["license"],
+                            compatibility = meta["compatibility"],
+                            tags = parseTags(meta["tags"]),
+                            bodyContent = meta["body"],
+                            fullContent = content,
+                            isFolder = true
+                        )
+                    } catch (_: Exception) {
+                        null
                     }
                 }
-
-                val resourceItem = ResourceItem(
-                    name = meta["name"] ?: skillName,
-                    category = ResourceCategory.SKILLS,
-                    path = skillDirPath,
-                    repoOwner = repo.owner,
-                    repoName = repo.repo,
-                    repoBranch = repo.branch,
-                    sha = dirSha,
-                    description = meta["description"],
-                    license = meta["license"],
-                    compatibility = meta["compatibility"],
-                    tags = parseTags(meta["tags"]),
-                    bodyContent = meta["body"],
-                    fullContent = content,
-                    isFolder = true
-                )
-                result.getOrPut(ResourceCategory.SKILLS) { mutableListOf() }.add(resourceItem)
+            }
+            val skillItems = futures.mapNotNull { it.get() }
+            if (skillItems.isNotEmpty()) {
+                result.getOrPut(ResourceCategory.SKILLS) { mutableListOf() }.addAll(skillItems)
             }
         } catch (_: Exception) {
             // Failed to parse tree
@@ -301,24 +339,30 @@ class ResourceClient {
      * Enrich skill items (directories) with metadata from SKILL.md frontmatter.
      */
     private fun enrichSkillItems(items: List<ResourceItem>, repo: ResourceRepository): List<ResourceItem> {
-        return items.map { item ->
-            if (!item.isFolder) return@map item
-            val skillMdPath = "${item.path}/SKILL.md"
-            val content = fetchRawContent(repo.owner, repo.repo, repo.branch, skillMdPath)
-            if (content != null) {
-                val meta = parseSkillMd(content)
-                item.copy(
-                    name = meta["name"] ?: item.name,
-                    description = meta["description"],
-                    license = meta["license"],
-                    compatibility = meta["compatibility"],
-                    tags = parseTags(meta["tags"]),
-                    bodyContent = meta["body"],
-                    fullContent = content
-                )
-            } else {
-                item
+        // Fetch all SKILL.md files in parallel (mirrors VS Code's Promise.allSettled)
+        val futures: List<Pair<ResourceItem, Future<ResourceItem>>> = items.map { item ->
+            item to executor.submit<ResourceItem> {
+                if (!item.isFolder) return@submit item
+                val skillMdPath = "${item.path}/SKILL.md"
+                val content = fetchRawContent(repo.owner, repo.repo, repo.branch, skillMdPath)
+                if (content != null) {
+                    val meta = parseSkillMd(content)
+                    item.copy(
+                        name = meta["name"] ?: item.name,
+                        description = meta["description"],
+                        license = meta["license"],
+                        compatibility = meta["compatibility"],
+                        tags = parseTags(meta["tags"]),
+                        bodyContent = meta["body"],
+                        fullContent = content
+                    )
+                } else {
+                    item
+                }
             }
+        }
+        return futures.map { (original, future) ->
+            try { future.get() } catch (_: Exception) { original }
         }
     }
 
@@ -416,9 +460,11 @@ class ResourceClient {
                 body?.let { cache[url] = it to System.currentTimeMillis() }
                 body
             } else {
+                LOG.warn("httpGet $url returned HTTP ${response.code}: ${response.message}")
                 null
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            LOG.warn("httpGet $url exception: ${e.message}")
             null
         }
     }

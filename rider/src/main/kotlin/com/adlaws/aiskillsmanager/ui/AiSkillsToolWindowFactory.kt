@@ -96,8 +96,11 @@ class AiSkillsToolWindowFactory : ToolWindowFactory, DumbAware {
         }
         toolWindow.setTitleActions(actionGroup.getChildren(null).toList())
 
-        // Initial load
+        // Initial load — deferred to invokeLater so the UI is fully wired up first.
+        // InstalledPanel.loadResources() is called here (after onInstalledChanged is set)
+        // rather than in its constructor, to ensure cross-panel callbacks work on first load.
         ApplicationManager.getApplication().invokeLater {
+            installedPanel.loadResources()
             marketplacePanel.loadResources()
             localPanel.loadResources()
         }
