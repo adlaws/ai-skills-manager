@@ -79,7 +79,9 @@ data class InstalledResource(
 data class InstallMetadata(
     val sha: String,
     val sourceRepo: String,
-    val installedAt: String? = null
+    val installedAt: String? = null,
+    /** SHA-256 hash of installed content — used to detect local modifications. */
+    val contentHash: String? = null
 )
 
 /**

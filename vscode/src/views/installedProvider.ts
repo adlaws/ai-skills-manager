@@ -40,14 +40,16 @@ export class InstalledResourceTreeItem extends vscode.TreeItem {
     constructor(
         public readonly resource: InstalledResource,
         public readonly hasUpdate: boolean = false,
+        public readonly hasModifications: boolean = false,
     ) {
         super(resource.name, vscode.TreeItemCollapsibleState.None);
 
         const scopeLabel = resource.scope === 'global' ? '$(home) Global' : '$(folder) Workspace';
         const updateLabel = hasUpdate ? ' $(cloud-download) Update available' : '';
+        const modifiedLabel = hasModifications ? ' $(edit) Modified' : '';
         this.description = resource.description
-            ? `${resource.description} • ${scopeLabel}${updateLabel}`
-            : `${scopeLabel}${updateLabel}`;
+            ? `${resource.description} • ${scopeLabel}${updateLabel}${modifiedLabel}`
+            : `${scopeLabel}${updateLabel}${modifiedLabel}`;
 
         this.tooltip = new vscode.MarkdownString();
         this.tooltip.appendMarkdown(`**${resource.name}**\n\n`);
@@ -59,6 +61,9 @@ export class InstalledResourceTreeItem extends vscode.TreeItem {
         if (hasUpdate) {
             this.tooltip.appendMarkdown(`\n\n$(cloud-download) **Update available** — a newer version exists in the source repository`);
         }
+        if (hasModifications) {
+            this.tooltip.appendMarkdown(`\n\n$(edit) **Modified locally** — local content differs from the installed version`);
+        }
         this.tooltip.supportThemeIcons = true;
 
         this.iconPath =
@@ -66,13 +71,14 @@ export class InstalledResourceTreeItem extends vscode.TreeItem {
                 ? new vscode.ThemeIcon('folder')
                 : new vscode.ThemeIcon(CATEGORY_ICONS[resource.category]);
 
-        // Encode update status in context value for menu visibility
+        // Encode update + modification status in context value for menu visibility
         const baseContext = resource.scope === 'global'
             ? 'installedResourceGlobal'
             : 'installedResourceWorkspace';
-        this.contextValue = hasUpdate
-            ? `${baseContext}Updatable`
-            : baseContext;
+        let ctx = baseContext;
+        if (hasUpdate) { ctx += 'Updatable'; }
+        if (hasModifications) { ctx += 'Modified'; }
+        this.contextValue = ctx;
 
         this.command = {
             command: 'aiSkillsManager.viewDetails',
@@ -99,6 +105,8 @@ export class InstalledTreeDataProvider
     private installMetadata = new Map<string, InstallMetadata[string]>();
     /** Set of resource names that have updates available. */
     private updatableNames = new Set<string>();
+    /** Set of resource names that have been locally modified. */
+    private modifiedNames = new Set<string>();
 
     constructor(
         private readonly _context: vscode.ExtensionContext,
@@ -167,6 +175,27 @@ export class InstalledTreeDataProvider
         this.installMetadata = metadata;
     }
 
+    /** Get the full install metadata map. */
+    getInstallMetadata(): Map<string, InstallMetadata[string]> {
+        return this.installMetadata;
+    }
+
+    /** Set the names of resources that have been locally modified. */
+    setModifiedNames(names: Set<string>): void {
+        this.modifiedNames = names;
+        this._onDidChangeTreeData.fire();
+    }
+
+    /** Check if a resource has been locally modified. */
+    isModified(name: string): boolean {
+        return this.modifiedNames.has(name);
+    }
+
+    /** Get the set of resource names that have been locally modified. */
+    getModifiedNames(): Set<string> {
+        return this.modifiedNames;
+    }
+
     // ── TreeDataProvider ────────────────────────────────────────
 
     getTreeItem(element: InstalledItem): vscode.TreeItem {
@@ -178,7 +207,11 @@ export class InstalledTreeDataProvider
     ): vscode.ProviderResult<InstalledItem[]> {
         if (element instanceof InstalledCategoryTreeItem) {
             return element.resources.map(
-                (r) => new InstalledResourceTreeItem(r, this.updatableNames.has(r.name)),
+                (r) => new InstalledResourceTreeItem(
+                    r,
+                    this.updatableNames.has(r.name),
+                    this.modifiedNames.has(r.name),
+                ),
             );
         }
 

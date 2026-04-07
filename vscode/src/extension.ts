@@ -28,6 +28,7 @@ import { PackService } from './services/packService';
 import { ValidationService } from './services/validationService';
 import { ConfigService } from './services/configService';
 import { UsageDetectionService } from './services/usageDetectionService';
+import { ContributionService } from './services/contributionService';
 import { ResourceItem, InstalledResource, ResourceRepository, ResourceCategory, LocalCollection } from './types';
 
 // ── Helpers ─────────────────────────────────────────────────────
@@ -136,6 +137,10 @@ export function activate(context: vscode.ExtensionContext) {
     const validationService = new ValidationService(pathService);
     const configService = new ConfigService(context);
     const usageDetectionService = new UsageDetectionService();
+    const contributionService = new ContributionService(
+        resourceClient,
+        pathService,
+    );
 
     // ── View providers ──────────────────────────────────────────
     const marketplaceProvider = new MarketplaceTreeDataProvider(
@@ -252,6 +257,44 @@ export function activate(context: vscode.ExtensionContext) {
         const names = installedProvider.getInstalledNames();
         marketplaceProvider.setInstalledNames(names);
         localProvider.setInstalledNames(names);
+    };
+
+    /**
+     * Check for local modifications by comparing current content hashes
+     * against the hashes stored at install time. Purely local — no network.
+     *
+     * Reads metadata directly from disk so it works even when the cached
+     * metadata map has not been populated yet (e.g. startup race, or when
+     * checkForUpdates has not finished / failed).
+     */
+    const checkForModifications = async () => {
+        // Read metadata fresh from disk — don't rely on the cached copy
+        // that is set by checkForUpdates, which may not have run yet.
+        const allMeta = await installationService.readAllInstallMetadata();
+        installedProvider.setInstallMetadata(allMeta);
+
+        const installed = installedProvider.getInstalledResources();
+        const modified = new Set<string>();
+
+        for (const resource of installed) {
+            const meta = allMeta.get(resource.name);
+            if (!meta?.contentHash || !meta?.sourceRepo) {
+                continue;
+            }
+
+            try {
+                const currentHash = await installationService.computeContentHash(
+                    resource.location, resource.category,
+                );
+                if (currentHash && currentHash !== meta.contentHash) {
+                    modified.add(resource.name);
+                }
+            } catch {
+                // Skip resources we can't hash
+            }
+        }
+
+        installedProvider.setModifiedNames(modified);
     };
 
     /**
@@ -849,6 +892,7 @@ export function activate(context: vscode.ExtensionContext) {
                 if (anySuccess) {
                     await syncInstalledStatus();
                     await checkForUpdates();
+                    await checkForModifications();
                 }
             },
         ),
@@ -918,6 +962,7 @@ export function activate(context: vscode.ExtensionContext) {
 
                 await syncInstalledStatus();
                 await checkForUpdates();
+                await checkForModifications();
 
                 if (failed > 0) {
                     vscode.window.showWarningMessage(
@@ -1501,6 +1546,127 @@ export function activate(context: vscode.ExtensionContext) {
             },
         ),
 
+        // Propose changes back to the source repository
+        vscode.commands.registerCommand(
+            'aiSkillsManager.proposeChanges',
+            async (
+                clicked?: InstalledResourceTreeItem | InstalledResource,
+                selected?: readonly (InstalledResourceTreeItem | InstalledResource)[],
+            ) => {
+                // If invoked from command palette with no args, show a quick pick
+                if (!clicked) {
+                    const allInstalled = installedProvider.getInstalledResources();
+                    const withSource = allInstalled.filter((r) => {
+                        const meta = installedProvider.getMetadata(r.name);
+                        return contributionService.canProposeChanges(r, meta);
+                    });
+
+                    if (withSource.length === 0) {
+                        vscode.window.showInformationMessage(
+                            'No installed resources have source repository metadata. Install resources from the Marketplace first.',
+                        );
+                        return;
+                    }
+
+                    const pick = await vscode.window.showQuickPick(
+                        withSource.map((r) => ({
+                            label: r.name,
+                            description: `${r.category} • ${r.scope}`,
+                            resource: r,
+                        })),
+                        {
+                            placeHolder: 'Select an installed resource to propose changes for',
+                            title: 'Propose Changes to Repository',
+                        },
+                    );
+
+                    if (!pick) {
+                        return;
+                    }
+
+                    const meta = installedProvider.getMetadata(pick.resource.name);
+                    await contributionService.proposeChanges(pick.resource, meta);
+                    return;
+                }
+
+                const resources = resolveInstalledItems(clicked, selected);
+                if (resources.length === 0) {
+                    return;
+                }
+
+                // Only process the first resource (propose changes is inherently per-resource)
+                const resource = resources[0];
+                const meta = installedProvider.getMetadata(resource.name);
+                await contributionService.proposeChanges(resource, meta);
+            },
+        ),
+
+        // Revert an installed resource to the version in the source repository
+        vscode.commands.registerCommand(
+            'aiSkillsManager.revertToRepository',
+            async (
+                clicked?: InstalledResourceTreeItem | InstalledResource,
+                selected?: readonly (InstalledResourceTreeItem | InstalledResource)[],
+            ) => {
+                // If invoked from command palette with no args, show a quick pick
+                if (!clicked) {
+                    const allInstalled = installedProvider.getInstalledResources();
+                    const withSource = allInstalled.filter((r) => {
+                        const meta = installedProvider.getMetadata(r.name);
+                        const sourceRepo = meta?.sourceRepo ?? r.sourceRepo;
+                        return !!(sourceRepo?.owner && sourceRepo?.repo && sourceRepo?.filePath);
+                    });
+
+                    if (withSource.length === 0) {
+                        vscode.window.showInformationMessage(
+                            'No installed resources have source repository metadata. Install resources from the Marketplace first.',
+                        );
+                        return;
+                    }
+
+                    const pick = await vscode.window.showQuickPick(
+                        withSource.map((r) => ({
+                            label: r.name,
+                            description: `${r.category} • ${r.scope}`,
+                            resource: r,
+                        })),
+                        {
+                            placeHolder: 'Select an installed resource to revert to the repository version',
+                            title: 'Revert to Repository Version',
+                        },
+                    );
+
+                    if (!pick) {
+                        return;
+                    }
+
+                    const meta = installedProvider.getMetadata(pick.resource.name);
+                    const ok = await installationService.revertResource(pick.resource, meta);
+                    if (ok) {
+                        await syncInstalledStatus();
+                        await checkForUpdates();
+                        await checkForModifications();
+                    }
+                    return;
+                }
+
+                const resources = resolveInstalledItems(clicked, selected);
+                if (resources.length === 0) {
+                    return;
+                }
+
+                // Process first resource only (revert is inherently per-resource due to diff)
+                const resource = resources[0];
+                const meta = installedProvider.getMetadata(resource.name);
+                const ok = await installationService.revertResource(resource, meta);
+                if (ok) {
+                    await syncInstalledStatus();
+                    await checkForUpdates();
+                    await checkForModifications();
+                }
+            },
+        ),
+
         // Disconnect (deregister) a local collection without deleting from disk
         vscode.commands.registerCommand(
             'aiSkillsManager.localDeregisterCollection',
@@ -1549,6 +1715,16 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     // ── File-system watchers ────────────────────────────────────
+
+    // Debounced modification re-check so rapid saves don't hammer hashing
+    let modCheckTimer: ReturnType<typeof setTimeout> | undefined;
+    const debouncedModCheck = () => {
+        if (modCheckTimer) { clearTimeout(modCheckTimer); }
+        modCheckTimer = setTimeout(() => {
+            checkForModifications().catch(() => { });
+        }, 1500);
+    };
+
     const watchPatterns = [
         '**/.agents/*/SKILL.md',
         '**/.agents/**/*',
@@ -1563,6 +1739,7 @@ export function activate(context: vscode.ExtensionContext) {
         const watcher = vscode.workspace.createFileSystemWatcher(pattern);
         watcher.onDidCreate(() => syncInstalledStatus());
         watcher.onDidDelete(() => syncInstalledStatus());
+        watcher.onDidChange(() => debouncedModCheck());
         context.subscriptions.push(watcher);
     }
 
@@ -1593,7 +1770,10 @@ export function activate(context: vscode.ExtensionContext) {
         marketplaceProvider.setInstalledNames(names);
         localProvider.setInstalledNames(names);
 
-        // Check for updates after initial load (non-blocking)
+        // Check for local modifications first (fast, no network)
+        await checkForModifications().catch(() => { });
+
+        // Then check for updates after initial load (non-blocking)
         checkForUpdates().catch(() => {
             // Silently ignore update check failures
         });

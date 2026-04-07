@@ -114,6 +114,26 @@ export class ResourceDetailPanel {
                         }
                         break;
                     }
+                    case 'proposeChanges': {
+                        const installed = this._installedProvider.getInstalledByName(this._item.name);
+                        if (installed) {
+                            await vscode.commands.executeCommand(
+                                'aiSkillsManager.proposeChanges',
+                                installed,
+                            );
+                        }
+                        break;
+                    }
+                    case 'revertToRepository': {
+                        const installed = this._installedProvider.getInstalledByName(this._item.name);
+                        if (installed) {
+                            await vscode.commands.executeCommand(
+                                'aiSkillsManager.revertToRepository',
+                                installed,
+                            );
+                        }
+                        break;
+                    }
                     case 'openExternal':
                         if (message.url) {
                             vscode.env.openExternal(
@@ -205,6 +225,8 @@ export class ResourceDetailPanel {
             : undefined;
         const installedScope = installedResource?.scope;
         const hasUpdate = this._installedProvider.hasUpdate(item.name);
+        const hasSourceRepo = !!(this._installedProvider.getMetadata(item.name)?.sourceRepo);
+        const isModified = this._installedProvider.isModified(item.name);
         const nonce = this._getNonce();
         const categoryLabel = CATEGORY_LABELS[item.category];
 
@@ -244,6 +266,7 @@ export class ResourceDetailPanel {
                     ${item.compatibility ? `<span class="badge compat">🔧 ${this._esc(item.compatibility)}</span>` : ''}
                     ${isInstalled ? '<span class="badge installed">✓ Installed</span>' : ''}
                     ${hasUpdate ? '<span class="badge update">⬆ Update available</span>' : ''}
+                    ${isModified ? '<span class="badge modified">✎ Modified locally</span>' : ''}
                 </div>
                 <div class="actions">
                     ${isInstalled
@@ -252,7 +275,9 @@ export class ResourceDetailPanel {
                    ${installedScope === 'local'
                     ? `<button class="btn secondary" id="moveToGlobalBtn" title="${this._esc(moveToGlobalTooltip)}"><span class="icon">🏠</span> Move to Global</button>`
                     : `<button class="btn secondary" id="moveToWorkspaceBtn" title="${this._esc(moveToWorkspaceTooltip)}"><span class="icon">📁</span> Move to Workspace</button>`
-                }`
+                }
+                   ${hasSourceRepo && isModified ? '<button class="btn secondary" id="proposeChangesBtn" title="Push your local changes to the source repository as a pull request"><span class="icon">🚀</span> Propose Changes…</button>' : ''}
+                   ${hasSourceRepo && isModified ? '<button class="btn secondary" id="revertBtn" title="Discard local changes and revert to the version in the source repository"><span class="icon">⏪</span> Revert to Repository Version</button>' : ''}`
                 : `<button class="btn primary" id="installBtn" title="${this._esc(workspaceTooltip)}"><span class="icon">⬇️</span> Install to Workspace</button>
                    <button class="btn primary" id="installGloballyBtn" title="${this._esc(globalTooltip)}"><span class="icon">🏠</span> Install Globally</button>`
             }
@@ -299,6 +324,8 @@ export class ResourceDetailPanel {
             function moveToGlobal()   { vscode.postMessage({ command: 'moveToGlobal' }); }
             function moveToWorkspace(){ vscode.postMessage({ command: 'moveToWorkspace' }); }
             function updateResource() { vscode.postMessage({ command: 'updateResource' }); }
+            function proposeChanges() { vscode.postMessage({ command: 'proposeChanges' }); }
+            function revertToRepository() { vscode.postMessage({ command: 'revertToRepository' }); }
             function openSource()     { vscode.postMessage({ command: 'openExternal', url: sourceUrl }); }
 
             function showTab(tabId) {
@@ -320,6 +347,10 @@ export class ResourceDetailPanel {
             if (mtw) mtw.addEventListener('click', moveToWorkspace);
             var upb = document.getElementById('updateBtn');
             if (upb) upb.addEventListener('click', updateResource);
+            var pcb = document.getElementById('proposeChangesBtn');
+            if (pcb) pcb.addEventListener('click', proposeChanges);
+            var rvb = document.getElementById('revertBtn');
+            if (rvb) rvb.addEventListener('click', revertToRepository);
             var sb = document.getElementById('sourceBtn');
             if (sb) sb.addEventListener('click', openSource);
             var sl = document.getElementById('sourceLink');
@@ -385,6 +416,7 @@ h3 { font-size: 1.1em; margin: 16px 0 8px 0; }
 .badge { display: inline-block; padding: 4px 10px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); border-radius: 4px; font-size: 0.85em; }
 .badge.installed { background: var(--vscode-diffEditor-insertedTextBackground); }
 .badge.update { background: var(--vscode-editorWarning-foreground); color: var(--vscode-editor-background); }
+.badge.modified { background: var(--vscode-editorInfo-foreground); color: var(--vscode-editor-background); }
 .actions { display: flex; gap: 8px; }
 .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 1em; font-family: inherit; }
 .btn.primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }

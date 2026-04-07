@@ -34,6 +34,9 @@ Works in **Rider**, **IntelliJ IDEA**, **WebStorm**, **PyCharm**, and all other 
 * **Status Bar Quick Access** — A status bar widget shows the count of installed resources and available updates, with a click to open a menu for common actions
 * **Resource Usage Detection** — Scan project files to discover which installed resources are actually referenced in configuration files like `copilot-instructions.md`, `settings.json`, `mcp.json`, `AGENTS.md`, and more
 * **File Watchers** — Local collection and install directories are watched for changes; the tree views refresh automatically when files are added or removed on disk
+* **Propose Changes** — Push local modifications back to the source GitHub repository as a pull request, directly from the plugin
+* **Revert to Repository Version** — Restore a modified resource to its original installed state by fetching the upstream content
+* **Modification Detection** — Automatically detects when installed resources have been locally modified, showing a "Modified" indicator in context menus and detail panels and enabling revert/propose actions
 
 ## Quick Start
 
@@ -85,6 +88,8 @@ Double-click any resource in the Marketplace, Local Collections, or Installed tr
    * **Move to Global** / **Move to Workspace** — relocate between scopes
    * **Copy to Local Collection** — copy the resource into a configured local collection folder
    * **Create Resource Pack** — create a pack manifest from this resource
+   * **Propose Changes…** — push your local modifications back to the source repository as a pull request (only for resources installed from a marketplace repository that have been locally modified)
+   * **Revert to Repository Version…** — restore the resource to its original installed state from the upstream repository (only for locally modified resources with source repo metadata)
    * **Remove** — delete the installed file or folder
 
 ### Local Collections
@@ -316,6 +321,46 @@ When multiple items are selected, right-click to see the available bulk actions.
 * **Copy to Local Collection** — copy all selected resources to a collection
 * **Create Resource Pack** — create a pack from the selected resources
 
+### Propose Changes
+
+If you've modified an installed resource locally and want to push your changes back to the source repository, you can propose changes directly from the plugin:
+
+1. **Right-click** an installed resource and choose **Propose Changes…**, or click the **Propose Changes…** button in the resource detail panel
+2. The plugin uses your configured GitHub personal access token (must have `repo` scope for write access)
+3. It verifies you have push access to the source repository (collaborators only — non-collaborators see a clear error message)
+4. Enter a **branch name** (auto-generated as `ai-skills-manager/<category>/<name>/<date>`, editable)
+5. Enter a **PR title** and optional **description**
+6. The plugin creates the branch, commits your local file(s), and opens a pull request
+7. A dialog shows the PR number with an **Open in Browser** option
+
+**How it works under the hood:**
+* Single-file resources are committed via the GitHub Contents API (PUT)
+* Multi-file skills use the Git Data API (create blobs → tree → commit → update ref) for atomic commits
+* Only resources installed from a marketplace repository (with `sourceRepo` metadata) can be proposed
+* The feature targets direct collaborators only — fork-based contributions may be supported in a future update
+
+> **Note:** Unlike the VS Code extension (which uses VS Code's built-in GitHub OAuth), the Rider plugin requires a GitHub personal access token with `repo` scope configured in **Settings > Tools > AI Skills Manager > GitHub Token**.
+
+### Revert to Repository Version
+
+If you've modified an installed resource and want to undo your changes, you can revert it to the original version from the source repository:
+
+1. **Right-click** an installed resource that has been locally modified and choose **Revert to Repository Version…**, or click the **Revert to Repository Version…** button in the resource detail panel
+2. Confirm that you want to overwrite your local changes
+3. The plugin fetches the original content from the upstream repository and replaces your local copy
+4. The content hash is updated and the modification indicator is removed
+
+> **Note:** Only resources installed from a marketplace repository (with `sourceRepo` metadata) that have been locally modified will show the revert option.
+
+### Modification Detection
+
+The plugin automatically tracks whether installed resources have been locally modified:
+
+* At install time, a SHA-256 content hash is stored in `.ai-skills-meta.json`
+* When you right-click an installed resource, the plugin recomputes the hash on demand and compares it against the stored value
+* Resources with mismatched hashes show the **Propose Changes** and **Revert to Repository Version** actions in the context menu and detail panel
+* For single-file resources, the hash is of the file content; for skills (directories), all non-dot files are collected, sorted by relative path, and hashed together
+
 ## Resource Categories
 
 | Category | Icon | Description | File Types |
@@ -521,6 +566,7 @@ The Rider plugin mirrors the VS Code extension's architecture:
 | `validationService.ts` | `services/ValidationService.kt` | Health checks |
 | `configService.ts` | `services/ConfigService.kt` | Export / import |
 | `usageDetectionService.ts` | `services/UsageDetectionService.kt` | Workspace scanning |
+| `contributionService.ts` | `services/ContributionService.kt` | Branch + commit + PR via REST API |
 | VS Code settings | `services/SettingsService.kt` | `PersistentStateComponent` |
 | VS Code `globalState` | `services/StateService.kt` | `PersistentStateComponent` |
 | `marketplaceProvider.ts` | `ui/MarketplacePanel.kt` | `JTree` + `DefaultTreeModel` |
@@ -540,7 +586,8 @@ The Rider plugin mirrors the VS Code extension's architecture:
 * **GitHub auth**: Uses a personal access token configured in settings.
 * **Install strategy**: Skills (folders) are fetched file-by-file and written to disk. Other resources are single-file downloads. Local collection installs use filesystem copy.
 * **Caching**: All API responses are cached in memory with a configurable TTL (`cacheTimeout`, default 1 hour).
-* **Update detection**: Install metadata (SHA hash and source repository info) is persisted alongside each installed resource in a `.ai-skills-meta.json` file. The plugin compares local SHAs against upstream SHAs from GitHub to detect available updates.
+* **Update detection**: Install metadata (SHA hash, source repository info, and content hash) is persisted alongside each installed resource in a `.ai-skills-meta.json` file. The plugin compares local SHAs against upstream SHAs from GitHub to detect available updates.
+* **Modification detection**: At install time, a SHA-256 content hash is stored in `.ai-skills-meta.json`. `isResourceModified()` recomputes the hash on demand and compares it against the stored value to detect local modifications. Modified resources show propose and revert actions in the context menu and detail panel.
 * **Diff before update**: When overwriting an existing resource, the user can choose to open IntelliJ's built-in diff viewer to compare the current and incoming content before deciding.
 * **Favorites**: Stored in `PersistentStateComponent` as an array of `"owner/repo:category:name"` identifiers. Favorites persist across sessions and projects.
 * **Tag extraction**: Tags are parsed from the `tags` field in resource frontmatter (supports both comma-separated strings and YAML arrays). The tag index is built lazily from loaded marketplace data.
@@ -549,6 +596,8 @@ The Rider plugin mirrors the VS Code extension's architecture:
 * **Validation**: Health checks iterate over all installed resources across all scopes, reading files from disk to verify existence, non-empty content, parseable YAML frontmatter (for `.md` files), and `SKILL.md` presence (for skill folders).
 * **Configuration export/import**: Exports capture a snapshot of all relevant settings. Import supports merge (additive, skips duplicates) and replace (full overwrite) strategies.
 * **Usage detection**: Scans well-known project files (e.g. `copilot-instructions.md`, `settings.json`, `mcp.json`, `AGENTS.md`, `CLAUDE.md`) for string matches of installed resource names.
+* **Propose changes**: Installed resources with source repo metadata can push local modifications back to the upstream repository. Creates a branch, commits file(s) via the GitHub REST API (Contents API for single files, Git Data API for multi-file skills), and opens a pull request. Requires a GitHub PAT with `repo` scope. Targets direct collaborators only.
+* **Revert to repository**: Modified resources can be reverted to their original upstream content. The plugin fetches the content from the source repository and overwrites the local copy, updating the stored content hash.
 * **Status bar**: Shows installed count and update count; clicking opens a popup menu with shortcuts to common actions.
 * **File watchers**: Uses IntelliJ's `VirtualFileManager` / `BulkFileListener` to watch local collection and install directories for changes, triggering debounced tree refreshes.
 * **Multi-select**: All three tree panels use `DISCONTIGUOUS_TREE_SELECTION` mode, allowing Shift+Click range selection and Ctrl+Click toggle. Bulk context menus adapt to the selection.

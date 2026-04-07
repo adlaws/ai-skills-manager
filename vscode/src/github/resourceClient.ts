@@ -244,6 +244,36 @@ export class ResourceClient {
         }
     }
 
+    /**
+     * Get a GitHub auth token with write (repo) scope.
+     * Used by ContributionService for pushing changes and creating PRs.
+     * This always prompts the user since write access is a privilege escalation.
+     */
+    async getWriteAuthToken(): Promise<string | undefined> {
+        // 1. Explicit config token — assume it has the necessary scopes
+        const config = vscode.workspace.getConfiguration('aiSkillsManager');
+        const configToken = config.get<string>('githubToken', '');
+        if (configToken) {
+            return configToken;
+        }
+
+        // 2. Request a session with 'repo' scope (write access)
+        try {
+            const session = await vscode.authentication.getSession(
+                'github',
+                ['repo'],
+                { createIfNone: true },
+            );
+            if (session?.accessToken) {
+                return session.accessToken;
+            }
+        } catch {
+            // User declined or auth failed
+        }
+
+        return undefined;
+    }
+
     /** Clear all cached data. */
     clearCache(): void {
         this.cache.clear();

@@ -72,6 +72,10 @@
         <projectService
                 serviceImplementation="com.adlaws.aiskillsmanager.services.UsageDetectionService"/>
 
+        <!-- Project-level contribution service (propose changes / PR) -->
+        <projectService
+                serviceImplementation="com.adlaws.aiskillsmanager.services.ContributionService"/>
+
         <!-- Status bar widget -->
         <statusBarWidgetFactory
                 id="AiSkillsManager.StatusBar"
