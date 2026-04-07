@@ -6,31 +6,34 @@ A one-stop-shop for **Chat Modes**, **Instructions**, **Prompts**, **Agents**, a
 
 ## Features
 
-- **Resource Marketplace** — Browse Chat Modes, Instructions, Prompts, Agents, and Skills from multiple GitHub repositories
-- **Local Collections** — Browse and manage resources from local folders on disk, with the same category structure as the Marketplace
-- **Search** — Quickly find resources by name or keyword in both Marketplace and Local Collections
-- **One-Click Install** — Download single files or install skill folders directly into your workspace or globally to your home directory
-- **Global & Workspace Scopes** — Install resources to the workspace (per-workspace) or globally (home directory, shared across all workspaces), and move between scopes at any time
-- **Copy to Local Collection** — Copy installed resources into a configured local collection for offline sharing or backup
-- **Installed Resources** — View and manage all resources installed to the workspace or globally, grouped by category with clear scope indicators
-- **Rich Preview** — Preview resource content with markdown rendering before installing, or view details for already-installed resources
-- **Context Menus** — Right-click any resource in the Marketplace, Local Collections, or Installed tree for quick access to all available actions
-- **Repository Management** — Enable/disable repos, add your own custom repos, all from a quick-pick UI
-- **Collection Management** — Add, toggle, or remove local collection folders via a quick-pick UI
-- **Per-Category Install Locations** — Each category installs to its own configurable folder (default: `.agents/<category>/`)
-- **GitHub Auth** — Supports personal access tokens and VS Code's built-in GitHub authentication for higher API rate limits
-- **Update Detection** — Automatically checks for upstream changes on installed resources and shows update badges in the Installed tree and detail panel
-- **One-Click Update** — Update individual resources or all outdated resources at once, with the option to compare changes before overwriting
-- **Resource Scaffolding** — Create new Chat Modes, Instructions, Prompts, Agents, or Skills from built-in templates with proper frontmatter and structure
-- **Favorites** — Star marketplace resources to bookmark them; favorites appear in a dedicated section at the top of the Marketplace tree
-- **Resource Packs** — Bundle multiple resources into a JSON manifest and install them all at once; create packs from your currently installed resources
-- **Diff Before Update** — When overwriting an existing resource, choose to compare the incoming and existing versions side-by-side in VS Code's diff editor before deciding
-- **Installed Resource Validation** — Run health checks across all installed resources to detect missing files, empty content, invalid frontmatter, or missing SKILL.md
-- **Export / Import Configuration** — Export your full extension configuration (repositories, collections, install locations, favorites) to a JSON file and import it on another machine, with merge or replace strategies
-- **Tag-Based Filtering** — Filter the Marketplace by tags extracted from resource frontmatter; active tag filters are shown in the tree title
-- **Status Bar Quick Access** — A status bar item shows the count of installed resources and available updates, with a click to open a quick-pick menu for common actions
-- **Resource Usage Detection** — Scan workspace files to discover which installed resources are actually referenced in configuration files like `copilot-instructions.md`, `settings.json`, `mcp.json`, `AGENTS.md`, and more
-- **Multi-Select** — Select multiple resources using Shift+Click (range) or Ctrl+Click (toggle) and perform bulk actions: install, uninstall, move, update, favorite, create packs, delete, and more
+* **Resource Marketplace** — Browse Chat Modes, Instructions, Prompts, Agents, and Skills from multiple GitHub repositories
+* **Local Collections** — Browse and manage resources from local folders on disk, with the same category structure as the Marketplace
+* **Search** — Quickly find resources by name or keyword in both Marketplace and Local Collections
+* **One-Click Install** — Download single files or install skill folders directly into your workspace or globally to your home directory
+* **Global & Workspace Scopes** — Install resources to the workspace (per-workspace) or globally (home directory, shared across all workspaces), and move between scopes at any time
+* **Copy to Local Collection** — Copy installed resources into a configured local collection for offline sharing or backup
+* **Installed Resources** — View and manage all resources installed to the workspace or globally, grouped by category with clear scope indicators
+* **Rich Preview** — Preview resource content with markdown rendering before installing, or view details for already-installed resources
+* **Context Menus** — Right-click any resource in the Marketplace, Local Collections, or Installed tree for quick access to all available actions
+* **Repository Management** — Enable/disable repos, add your own custom repos, all from a quick-pick UI
+* **Collection Management** — Add, toggle, or remove local collection folders via a quick-pick UI
+* **Per-Category Install Locations** — Each category installs to its own configurable folder (default: `.agents/<category>/`)
+* **GitHub Auth** — Supports personal access tokens and VS Code's built-in GitHub authentication for higher API rate limits
+* **Update Detection** — Automatically checks for upstream changes on installed resources and shows update badges in the Installed tree and detail panel
+* **One-Click Update** — Update individual resources or all outdated resources at once, with the option to compare changes before overwriting
+* **Resource Scaffolding** — Create new Chat Modes, Instructions, Prompts, Agents, or Skills from built-in templates with proper frontmatter and structure
+* **Favorites** — Star marketplace resources to bookmark them; favorites appear in a dedicated section at the top of the Marketplace tree
+* **Resource Packs** — Bundle multiple resources into a JSON manifest and install them all at once; create packs from your currently installed resources
+* **Diff Before Update** — When overwriting an existing resource, choose to compare the incoming and existing versions side-by-side in VS Code's diff editor before deciding
+* **Installed Resource Validation** — Run health checks across all installed resources to detect missing files, empty content, invalid frontmatter, or missing SKILL.md
+* **Export / Import Configuration** — Export your full extension configuration (repositories, collections, install locations, favorites) to a JSON file and import it on another machine, with merge or replace strategies
+* **Tag-Based Filtering** — Filter the Marketplace by tags extracted from resource frontmatter; active tag filters are shown in the tree title
+* **Status Bar Quick Access** — A status bar item shows the count of installed resources and available updates, with a click to open a quick-pick menu for common actions
+* **Resource Usage Detection** — Scan workspace files to discover which installed resources are actually referenced in configuration files like `copilot-instructions.md`, `settings.json`, `mcp.json`, `AGENTS.md`, and more
+* **Multi-Select** — Select multiple resources using Shift+Click (range) or Ctrl+Click (toggle) and perform bulk actions: install, uninstall, move, update, favorite, create packs, delete, and more
+* **Propose Changes** — Push local modifications back to the source GitHub repository as a pull request, directly from the extension
+* **Revert to Repository Version** — Restore a modified resource to its original installed state by fetching the upstream content
+* **Modification Detection** — Automatically detects when installed resources have been locally modified, showing a "Modified" indicator in the tree and enabling revert/propose actions
 
 ## Quick Start
 
@@ -67,12 +70,12 @@ A one-stop-shop for **Chat Modes**, **Instructions**, **Prompts**, **Agents**, a
 
 Click any resource in the Marketplace, Local Collections, or Installed tree to preview its contents in a detail panel with:
 
-- Full content / documentation with markdown rendering
-- Category badge, license, and compatibility info
-- Installation status
-- **Install to Workspace** / **Install Globally** buttons (with hover tooltips showing the target path)
-- **Remove** and **Move to Global** / **Move to Workspace** buttons for installed resources
-- View Source button to see the resource on GitHub
+* Full content / documentation with markdown rendering
+* Category badge, license, and compatibility info
+* Installation status
+* **Install to Workspace** / **Install Globally** buttons (with hover tooltips showing the target path)
+* **Remove** and **Move to Global** / **Move to Workspace** buttons for installed resources
+* View Source button to see the resource on GitHub
 
 ### Manage Installed Resources
 
@@ -80,11 +83,14 @@ Click any resource in the Marketplace, Local Collections, or Installed tree to p
 2. Each resource displays its scope (Global or Workspace) next to the description
 3. **Click** any installed resource to open its detail panel
 4. For each installed resource you can also use **inline buttons** or **right-click the context menu**:
-   - **Remove** — delete the installed file or folder
-   - **View Details** — open the documentation / detail panel (works even if the resource is no longer in the marketplace)
-   - **Open** — open the file or folder in the editor
-   - **Move to Global** / **Move to Workspace** — relocate between scopes (shown based on current scope)
-   - **Copy to Local Collection** — copy the resource into a configured local collection folder
+   * **Remove** — delete the installed file or folder
+   * **View Details** — open the documentation / detail panel (works even if the resource is no longer in the marketplace)
+   * **Open** — open the file or folder in the editor
+   * **Move to Global** / **Move to Workspace** — relocate between scopes (shown based on current scope)
+   * **Copy to Local Collection** — copy the resource into a configured local collection folder
+   * **Propose Changes…** — push your local modifications back to the source repository as a pull request (only shown when locally modified)
+   * **Revert to Repository Version…** — restore the resource to its original installed state from the upstream repository (only shown when locally modified)
+5. Resources that have been locally modified show a **"Modified"** indicator in the tree description
 
 ### Local Collections
 
@@ -124,8 +130,8 @@ my-resources/
 #### Install from a local collection
 
 Resources in local collections can be installed to the workspace or globally, just like Marketplace resources:
-- Click **Install to Workspace** (⬇️) or **Install Globally** (🏠) on any resource
-- Resources are copied from the collection folder to the configured install location
+* Click **Install to Workspace** (⬇️) or **Install Globally** (🏠) on any resource
+* Resources are copied from the collection folder to the configured install location
 
 #### Delete resources from a local collection
 
@@ -134,9 +140,9 @@ Resources in local collections can be installed to the workspace or globally, ju
 #### Manage collections
 
 Click the **gear** icon (⚙️) in the Local Collections title bar to:
-- **Toggle** collections on/off
-- **Add** new collection folders
-- **Remove** collections from the list
+* **Toggle** collections on/off
+* **Add** new collection folders
+* **Remove** collections from the list
 
 You can also **right-click** a collection in the Local Collections tree and choose **Disconnect Local Collection** to remove it from the configuration. This only removes the reference — the folder and its contents remain on disk.
 
@@ -144,11 +150,11 @@ You can also **right-click** a collection in the Local Collections tree and choo
 
 When the extension starts (or refreshes), it checks whether each configured collection folder exists on disk. If a folder is missing:
 
-- The collection appears with a **warning icon** in the Local Collections tree, coloured to indicate an error
-- The description shows **(not found)** next to the path
-- The tooltip explains that the folder could not be found and suggests disconnecting or creating it
-- The collection cannot be expanded (no children to show)
-- You can still **Disconnect** the collection from the right-click menu or inline button to correct your configuration
+* The collection appears with a **warning icon** in the Local Collections tree, coloured to indicate an error
+* The description shows **(not found)** next to the path
+* The tooltip explains that the folder could not be found and suggests disconnecting or creating it
+* The collection cannot be expanded (no children to show)
+* You can still **Disconnect** the collection from the right-click menu or inline button to correct your configuration
 
 Collection folders are also **watched for changes**. If a new resource is added to a collection folder on disk (or one is removed), the Local Collections tree will automatically refresh within a few seconds. If a previously missing folder is created, the extension will detect it periodically and start showing its contents. The check interval is configurable via `aiSkillsManager.localCollectionWatchInterval` (default: 30 seconds, minimum: 5 seconds).
 
@@ -156,9 +162,9 @@ Collection folders are also **watched for changes**. If a new resource is added 
 
 Click the **gear** icon (⚙️) in the Marketplace title bar to:
 
-- **Toggle** repositories on/off
-- **Add** new repositories (full repo or skills-only)
-- **Remove** repositories you no longer need
+* **Toggle** repositories on/off
+* **Add** new repositories (full repo or skills-only)
+* **Remove** repositories you no longer need
 
 ### Check for Updates
 
@@ -169,8 +175,8 @@ The extension automatically checks for upstream changes after loading the Market
 3. Category nodes show the count of updatable resources (e.g. "2 updates")
 
 To update a resource:
-- Click **Update Resource** (⬇️) on any resource with an update badge, or
-- Click **Update All Resources** (🔄) in the Installed title bar to update everything at once
+* Click **Update Resource** (⬇️) on any resource with an update badge, or
+* Click **Update All Resources** (🔄) in the Installed title bar to update everything at once
 
 When updating, if the resource already exists on disk, you'll be offered the option to **Compare** the incoming and existing versions in VS Code's diff editor before overwriting.
 
@@ -183,11 +189,11 @@ When updating, if the resource already exists on disk, you'll be offered the opt
 5. The resource is created with proper frontmatter / structure and opened in the editor
 
 Each category uses an appropriate template:
-- **Chat Modes** — `.chatmode` file with `name`, `description`, and `tools` frontmatter
-- **Instructions** — `.instructions.md` with `applyTo` and `description` frontmatter
-- **Prompts** — `.prompt.md` with `mode`, `description`, and `tools` frontmatter
-- **Agents** — `.md` agent file with `name`, `description`, and `tools` frontmatter
-- **Skills** — A folder containing `SKILL.md` with full frontmatter (name, description, license, compatibility)
+* **Chat Modes** — `.chatmode` file with `name`, `description`, and `tools` frontmatter
+* **Instructions** — `.instructions.md` with `applyTo` and `description` frontmatter
+* **Prompts** — `.prompt.md` with `mode`, `description`, and `tools` frontmatter
+* **Agents** — `.md` agent file with `name`, `description`, and `tools` frontmatter
+* **Skills** — A folder containing `SKILL.md` with full frontmatter (name, description, license, compatibility)
 
 ### Favorites
 
@@ -239,9 +245,9 @@ Pack file format:
 
 When installing or updating a resource that already exists on disk, the extension asks whether to overwrite:
 
-- **Overwrite** — Replace the existing file immediately
-- **Compare** — Open VS Code's diff editor showing the incoming content alongside your current version, so you can review changes before deciding
-- **Cancel** — Keep the existing version unchanged
+* **Overwrite** — Replace the existing file immediately
+* **Compare** — Open VS Code's diff editor showing the incoming content alongside your current version, so you can review changes before deciding
+* **Cancel** — Keep the existing version unchanged
 
 For skill folders (which contain multiple files), the comparison uses the `SKILL.md` file from each version.
 
@@ -249,10 +255,10 @@ For skill folders (which contain multiple files), the comparison uses the `SKILL
 
 Run **AI Skills Manager: Validate Installed Resources** from the Command Palette to scan all installed resources for common issues:
 
-- **Missing files** — Expected file or folder not found on disk
-- **Empty content** — File exists but has no content
-- **Invalid frontmatter** — YAML frontmatter cannot be parsed (for `.md` resources)
-- **Missing SKILL.md** — Skill folder exists but has no `SKILL.md` file
+* **Missing files** — Expected file or folder not found on disk
+* **Empty content** — File exists but has no content
+* **Invalid frontmatter** — YAML frontmatter cannot be parsed (for `.md` resources)
+* **Missing SKILL.md** — Skill folder exists but has no `SKILL.md` file
 
 Results are shown in an information message listing any problems found, or confirming that all resources are healthy. Issues are also logged to the Output Channel.
 
@@ -271,8 +277,8 @@ Share your extension setup across machines or with your team:
 1. Run **AI Skills Manager: Import Configuration…** from the Command Palette
 2. Select a previously exported JSON file
 3. Choose an import strategy:
-   - **Merge** — Adds new repositories, collections, and favorites alongside your existing ones (does not duplicate)
-   - **Replace** — Overwrites all settings with the imported values
+   * **Merge** — Adds new repositories, collections, and favorites alongside your existing ones (does not duplicate)
+   * **Replace** — Overwrites all settings with the imported values
 
 ### Filter by Tag
 
@@ -285,27 +291,44 @@ Resources with tags in their frontmatter (e.g. `tags: python, testing, automatio
 
 ### Status Bar Quick Access
 
-A status bar item appears showing the number of installed resources and available updates (e.g. `$(extensions) 12 ↑3`).
+A status bar item appears on the **right side** of the VS Code status bar. It uses a wrench icon (`$(tools)`) and adapts its display based on the current state:
 
-Click the status bar item to open a quick-pick menu with common actions:
-- Check for Updates
-- Create New Resource
-- Validate Installed Resources
-- Export / Import Configuration
-- Detect Resource Usage
-- Open AI Skills Manager panel
+| State | Display | Example |
+|---|---|---|
+| No resources installed | Wrench icon + "AI Skills" label | 🔧 AI Skills |
+| Resources installed, no updates | Wrench icon + installed count | 🔧 4 |
+| Resources installed, updates available | Wrench icon + count + cloud icon + update count | 🔧 4 ⬇ 2 |
+
+Hovering over the status bar item shows a tooltip with a summary (e.g. "AI Skills Manager — 4 resources installed" or "AI Skills Manager — 4 installed, 2 updates available").
+
+**Click** the status bar item to open a quick-pick menu with common actions:
+
+* **Browse Marketplace** — focus the Marketplace tree view
+* **Create New Resource…** — scaffold a new resource from a template
+* **View Installed** — focus the Installed tree view (shown when resources are installed, with count)
+* **Update All** — update all resources with available updates (shown when updates exist, with count)
+* **Check for Updates** — manually check for upstream changes
+* **Install Resource Pack…** — install resources from a pack JSON file
+* **Validate Installed Resources** — run health checks
+* **Export Configuration…** — export settings to a JSON file
+* **Import Configuration…** — import settings from a JSON file
+* **Detect Resource Usage** — scan workspace for resource references
+
+The status bar item updates automatically whenever the Installed tree changes (installs, uninstalls, updates, moves).
+
+> **Note:** VS Code's status bar API only supports built-in [codicon](https://microsoft.github.io/vscode-codicons/dist/codicon.html) icons — custom images or the AI Skills Manager logo cannot be used in the status bar. The wrench icon (`$(tools)`) was chosen as the closest match.
 
 ### Detect Resource Usage
 
 Run **AI Skills Manager: Detect Resource Usage** from the Command Palette to scan your workspace for references to installed resources. The extension searches for resource names in common configuration files:
 
-- `.github/copilot-instructions.md`
-- `.vscode/settings.json`
-- `.vscode/mcp.json`
-- `AGENTS.md`
-- `CLAUDE.md`
-- `.cursorrules`
-- Other well-known AI configuration files
+* `.github/copilot-instructions.md`
+* `.vscode/settings.json`
+* `.vscode/mcp.json`
+* `AGENTS.md`
+* `CLAUDE.md`
+* `.cursorrules`
+* Other well-known AI configuration files
 
 Results show which resources are referenced and where, helping you identify unused resources that can be cleaned up.
 
@@ -313,22 +336,61 @@ Results show which resources are referenced and where, helping you identify unus
 
 All three tree views (Marketplace, Local Collections, Installed) support multi-select:
 
-- **Shift+Click** — Select a contiguous range of items
-- **Ctrl+Click** (or **Cmd+Click** on Mac) — Toggle individual items in the selection
+* **Shift+Click** — Select a contiguous range of items
+* **Ctrl+Click** (or **Cmd+Click** on Mac) — Toggle individual items in the selection
 
 When multiple items are selected, right-click to see the available bulk actions. The context menu adapts to the selection — only actions that make sense for all selected items are shown.
 
 **Marketplace / Local Collections** — Bulk actions on selected resources:
-- **Install to Workspace** / **Install Globally** — Install all selected resources at once
-- **Toggle Favorite** — Add or remove favorites for all selected items (Marketplace only)
+* **Install to Workspace** / **Install Globally** — Install all selected resources at once
+* **Toggle Favorite** — Add or remove favorites for all selected items (Marketplace only)
 
 **Installed** — Bulk actions on selected installed resources:
-- **Remove** — Uninstall all selected resources (with a single confirmation prompt)
-- **Move to Global** / **Move to Workspace** — Move all selected resources between scopes
-- **Update** — Update all selected resources that have available updates
-- **Copy to Local Collection** — Copy all selected resources to a collection
-- **Create Resource Pack** — Create a pack from the selected resources
-- **Delete from Disk** — Delete all selected local collection resources (with one confirmation)
+* **Remove** — Uninstall all selected resources (with a single confirmation prompt)
+* **Move to Global** / **Move to Workspace** — Move all selected resources between scopes
+* **Update** — Update all selected resources that have available updates
+* **Copy to Local Collection** — Copy all selected resources to a collection
+* **Create Resource Pack** — Create a pack from the selected resources
+* **Delete from Disk** — Delete all selected local collection resources (with one confirmation)
+
+### Propose Changes
+
+If you've modified an installed resource locally and want to push your changes back to the source repository, you can propose changes directly from the extension:
+
+1. **Right-click** an installed resource and choose **Propose Changes…**, or click the **Propose Changes…** button in the resource detail panel, or run **AI Skills Manager: Propose Changes…** from the Command Palette
+2. The extension authenticates with GitHub (requesting `repo` scope for write access)
+3. It verifies you have push access to the source repository (collaborators only — non-collaborators see a clear error message)
+4. Enter a **branch name** (auto-generated as `ai-skills-manager/<category>/<name>/<date>`, editable)
+5. Enter a **PR title** and optional **description**
+6. The extension creates the branch, commits your local file(s), and opens a pull request
+7. A notification shows the PR number with an **Open in Browser** link
+
+**How it works under the hood:**
+* Single-file resources are committed via the GitHub Contents API (PUT)
+* Multi-file skills use the Git Data API (create blobs → tree → commit → update ref) for atomic commits
+* Only resources installed from a marketplace repository (with `sourceRepo` metadata) can be proposed
+* The feature targets direct collaborators only — fork-based contributions may be supported in a future update
+
+### Revert to Repository Version
+
+If you've modified an installed resource and want to undo your changes, you can revert it to the original version from the source repository:
+
+1. **Right-click** an installed resource that shows a **"Modified"** indicator and choose **Revert to Repository Version…**, or click the **Revert to Repository Version…** button in the resource detail panel
+2. Confirm that you want to overwrite your local changes
+3. The extension fetches the original content from the upstream repository and replaces your local copy
+4. The modification indicator is removed and the content hash is updated
+
+> **Note:** Only resources installed from a marketplace repository (with `sourceRepo` metadata) that have been locally modified will show the revert option.
+
+### Modification Detection
+
+The extension automatically tracks whether installed resources have been locally modified:
+
+* At install time, a SHA-256 content hash is stored in `.ai-skills-meta.json`
+* On startup and whenever an installed file changes on disk, the extension recomputes the hash and compares it against the stored value
+* Resources with mismatched hashes show a **"Modified"** indicator in the Installed tree
+* The **Propose Changes** and **Revert to Repository Version** actions only appear for modified resources
+* For single-file resources, the hash is of the file content; for skills (directories), all non-dot files are collected, sorted by relative path, and hashed together
 
 ## Resource Categories
 
@@ -416,9 +478,9 @@ Example configuration:
 **Setting:** `aiSkillsManager.localCollections`
 
 An array of local folder paths to browse for AI resources. Each entry specifies:
-- `path` (required) — Absolute path or `~/` prefix for home directory
-- `label` (optional) — Display label
-- `enabled` (default `true`) — Toggle on/off without removing
+* `path` (required) — Absolute path or `~/` prefix for home directory
+* `label` (optional) — Display label
+* `enabled` (default `true`) — Toggle on/off without removing
 
 ### GitHub Token
 
@@ -476,6 +538,8 @@ Available via Command Palette (`Ctrl+Shift+P`):
 | AI Skills Manager: Filter by Tag… | Filter marketplace resources by tag |
 | AI Skills Manager: Clear Tag Filter | Remove the active tag filter |
 | AI Skills Manager: Detect Resource Usage | Scan workspace files for references to installed resources |
+| AI Skills Manager: Propose Changes… | Push local modifications to the source repository as a pull request |
+| AI Skills Manager: Revert to Repository Version… | Restore a modified resource to its original upstream content |
 
 ## Skill Directory Structure
 
@@ -563,7 +627,8 @@ src/
 │   ├── packService.ts               # Install and create resource pack bundles
 │   ├── validationService.ts         # Health checks for installed resources
 │   ├── configService.ts             # Export / import extension configuration
-│   └── usageDetectionService.ts     # Scan workspace for resource references
+│   ├── usageDetectionService.ts     # Scan workspace for resource references
+│   └── contributionService.ts       # Propose changes (branch + commit + PR)
 ├── views/
 │   ├── marketplaceProvider.ts        # 3-level tree: Repo → Category → Item (+ Favorites, tag filter)
 │   ├── localProvider.ts              # 3-level tree: Collection → Category → Item
@@ -580,23 +645,26 @@ src/
 
 ### Key design decisions
 
-- **Two repository modes**: "Full repos" scan well-known category folders via the Contents API. "Skills repos" (with `skillsPath`) use the Git Trees API for efficient recursive scanning.
-- **Local Collections**: Configured local folders on disk are scanned for the same category structure, enabling offline browsing and management of resources without GitHub. Missing collection folders are detected on startup and shown with a warning indicator; folders are watched via Node.js `fs.watch` for automatic refresh when contents change, with a periodic 30-second existence check as a fallback.
-- **Per-category install locations**: Each of the five categories has its own configurable local and global path. Local paths default to `.agents/<category>/` (workspace-relative); global paths default to `~/.agents/<category>/` (home directory). Paths starting with `~/` resolve to the user's home directory.
-- **Global & workspace scopes**: Resources can be installed to the workspace or globally (home directory). Installed items display their scope and can be moved between scopes via inline actions.
-- **Copy to local collection**: Installed resources can be copied into any configured local collection, placing them in the correct `<collection>/<category>/<name>` structure.
-- **GitHub auth cascade**: Tries `aiSkillsManager.githubToken` first, then falls back to VS Code's built-in GitHub authentication (`vscode.authentication`).
-- **Install strategy**: Skills (folders) are fetched file-by-file and written to disk. Other resources are single-file downloads. Local collection installs use filesystem copy.
-- **Caching**: All API responses are cached in memory with a configurable TTL (`cacheTimeout`, default 1 hour).
-- **Update detection**: Install metadata (SHA hash and source repository info) is persisted alongside each installed resource in a `.ai-skills-meta.json` file. The extension compares local SHAs against upstream SHAs from GitHub to detect available updates.
-- **Favorites**: Stored in VS Code's `globalState` (key `aiSkillsManager.favorites`) as an array of `"owner/repo:category:name"` identifiers. Favorites persist across sessions and workspaces.
-- **Tag extraction**: Tags are parsed from the `tags` field in resource frontmatter (supports both comma-separated strings and YAML arrays). The tag index is built lazily from loaded marketplace data.
-- **Resource scaffolding**: Each category has a built-in template function that generates properly structured content with frontmatter. Skills create a folder with `SKILL.md`; all other categories create a single file.
-- **Resource packs**: A JSON manifest format (`{ name, description, resources[] }`) captures the source repository, category, and name of each resource. Pack installation resolves each entry against the marketplace and installs them sequentially.
-- **Validation**: Health checks iterate over all installed resources across all scopes, reading files from disk to verify existence, non-empty content, parseable YAML frontmatter (for `.md` files), and `SKILL.md` presence (for skill folders).
-- **Configuration export/import**: Exports capture a snapshot of all relevant settings. Import supports merge (additive, skips duplicates) and replace (full overwrite) strategies.
-- **Usage detection**: Scans well-known workspace files (e.g. `copilot-instructions.md`, `settings.json`, `mcp.json`, `AGENTS.md`, `CLAUDE.md`) for string matches of installed resource names.
-- **Status bar**: Shows installed count and update count; clicking opens a quick-pick menu with shortcuts to common actions.
+* **Two repository modes**: "Full repos" scan well-known category folders via the Contents API. "Skills repos" (with `skillsPath`) use the Git Trees API for efficient recursive scanning.
+* **Local Collections**: Configured local folders on disk are scanned for the same category structure, enabling offline browsing and management of resources without GitHub. Missing collection folders are detected on startup and shown with a warning indicator; folders are watched via Node.js `fs.watch` for automatic refresh when contents change, with a periodic 30-second existence check as a fallback.
+* **Per-category install locations**: Each of the five categories has its own configurable local and global path. Local paths default to `.agents/<category>/` (workspace-relative); global paths default to `~/.agents/<category>/` (home directory). Paths starting with `~/` resolve to the user's home directory.
+* **Global & workspace scopes**: Resources can be installed to the workspace or globally (home directory). Installed items display their scope and can be moved between scopes via inline actions.
+* **Copy to local collection**: Installed resources can be copied into any configured local collection, placing them in the correct `<collection>/<category>/<name>` structure.
+* **GitHub auth cascade**: Tries `aiSkillsManager.githubToken` first, then falls back to VS Code's built-in GitHub authentication (`vscode.authentication`).
+* **Install strategy**: Skills (folders) are fetched file-by-file and written to disk. Other resources are single-file downloads. Local collection installs use filesystem copy.
+* **Caching**: All API responses are cached in memory with a configurable TTL (`cacheTimeout`, default 1 hour).
+* **Update detection**: Install metadata (SHA hash, source repository info, and content hash) is persisted alongside each installed resource in a `.ai-skills-meta.json` file. The extension compares local SHAs against upstream SHAs from GitHub to detect available updates.
+* **Modification detection**: At install time, a SHA-256 content hash is stored in `.ai-skills-meta.json`. File system watchers trigger a debounced re-check when installed files change on disk, comparing current hashes against stored hashes to detect local modifications. Modified resources show an indicator in the tree and enable the revert/propose actions.
+* **Favorites**: Stored in VS Code's `globalState` (key `aiSkillsManager.favorites`) as an array of `"owner/repo:category:name"` identifiers. Favorites persist across sessions and workspaces.
+* **Tag extraction**: Tags are parsed from the `tags` field in resource frontmatter (supports both comma-separated strings and YAML arrays). The tag index is built lazily from loaded marketplace data.
+* **Resource scaffolding**: Each category has a built-in template function that generates properly structured content with frontmatter. Skills create a folder with `SKILL.md`; all other categories create a single file.
+* **Resource packs**: A JSON manifest format (`{ name, description, resources[] }`) captures the source repository, category, and name of each resource. Pack installation resolves each entry against the marketplace and installs them sequentially.
+* **Validation**: Health checks iterate over all installed resources across all scopes, reading files from disk to verify existence, non-empty content, parseable YAML frontmatter (for `.md` files), and `SKILL.md` presence (for skill folders).
+* **Configuration export/import**: Exports capture a snapshot of all relevant settings. Import supports merge (additive, skips duplicates) and replace (full overwrite) strategies.
+* **Usage detection**: Scans well-known workspace files (e.g. `copilot-instructions.md`, `settings.json`, `mcp.json`, `AGENTS.md`, `CLAUDE.md`) for string matches of installed resource names.
+* **Propose changes**: Installed resources with source repo metadata can push local modifications back to the upstream repository. Creates a branch, commits file(s) via the GitHub REST API (Contents API for single files, Git Data API for multi-file skills), and opens a pull request. Requires `repo` scope authentication. Targets direct collaborators only.
+* **Revert to repository**: Modified resources can be reverted to their original upstream content. The extension fetches the content from the source repository and overwrites the local copy, updating the stored content hash.
+* **Status bar**: Shows installed count and update count; clicking opens a quick-pick menu with shortcuts to common actions.
 
 ## License
 

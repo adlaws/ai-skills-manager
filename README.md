@@ -64,6 +64,9 @@ Both extensions provide the same core functionality:
 * **Resource Validation** — Health checks for installed resources
 * **Usage Detection** — Find which resources are referenced in workspace files
 * **Multi-Select** — Bulk operations on multiple resources
+* **Propose Changes** — Push local modifications back to the source repository as a pull request
+* **Revert to Repository Version** — Restore a modified resource to its original upstream content
+* **Modification Detection** — SHA-256 content hashes detect local edits to installed resources
 * **Status Bar** — Quick access to installed count and common actions
 * **File Watchers** — Automatic refresh when files change on disk
 

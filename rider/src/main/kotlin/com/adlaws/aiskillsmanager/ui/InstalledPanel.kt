@@ -329,6 +329,27 @@ class InstalledPanel(private val project: Project) : Disposable {
                 }
             })
 
+            // Propose Changes — only first selected modified resource with source metadata
+            val installSvcBulk = InstallationService(ResourceClient().apply { syncSettings() }, ProjectService.getInstance(project))
+            val firstWithSource = selectedResources.firstOrNull { (res, _) ->
+                val meta = ProjectService.getInstance(project).readAllInstallMetadata()[res.name]
+                ContributionService.getInstance(project).canProposeChanges(res, meta) && installSvcBulk.isResourceModified(res)
+            }
+            if (firstWithSource != null) {
+                menu.add(JMenuItem("Propose Changes…").apply {
+                    addActionListener { proposeChanges(firstWithSource.first) }
+                })
+            }
+            // Revert to Repository — only first selected modified resource with source metadata
+            val firstWithRevert = selectedResources.firstOrNull { (res, _) ->
+                val meta = ProjectService.getInstance(project).readAllInstallMetadata()[res.name]
+                meta != null && meta.sourceRepo.isNotBlank() && installSvcBulk.isResourceModified(res)
+            }
+            if (firstWithRevert != null) {
+                menu.add(JMenuItem("Revert to Repository Version\u2026").apply {
+                    addActionListener { revertToRepository(firstWithRevert.first) }
+                })
+            }
             menu.addSeparator()
             menu.add(JMenuItem("Remove ${selectedResources.size} Resources").apply {
                 addActionListener { bulkUninstall(selectedResources.map { it.first }) }
@@ -363,6 +384,22 @@ class InstalledPanel(private val project: Project) : Disposable {
                 addActionListener { createPackFromSelected(listOf(resource)) }
             })
 
+            // Propose Changes — show only if resource is modified and has source repo metadata
+            val meta = ProjectService.getInstance(project).readAllInstallMetadata()[resource.name]
+            val installSvcSingle = InstallationService(ResourceClient().apply { syncSettings() }, ProjectService.getInstance(project))
+            val isModified = installSvcSingle.isResourceModified(resource)
+            if (isModified && ContributionService.getInstance(project).canProposeChanges(resource, meta)) {
+                menu.add(JMenuItem("Propose Changes…").apply {
+                    addActionListener { proposeChanges(resource) }
+                })
+            }
+            // Revert to Repository — show only if resource is modified and has source repo metadata
+            val revertMeta = meta ?: ProjectService.getInstance(project).readAllInstallMetadata()[resource.name]
+            if (isModified && revertMeta != null && revertMeta.sourceRepo.isNotBlank()) {
+                menu.add(JMenuItem("Revert to Repository Version\u2026").apply {
+                    addActionListener { revertToRepository(resource) }
+                })
+            }
             menu.addSeparator()
 
             menu.add(JMenuItem("Remove").apply {
@@ -459,6 +496,279 @@ class InstalledPanel(private val project: Project) : Disposable {
         } else {
             Messages.showErrorDialog(project, "Failed to create pack.", "Error")
         }
+    }
+
+    private fun proposeChanges(resource: InstalledResource) {
+        val contributionService = ContributionService.getInstance(project)
+        val projectService = ProjectService.getInstance(project)
+        val allMeta = projectService.readAllInstallMetadata()
+        val metadata = allMeta[resource.name]
+
+        if (!contributionService.canProposeChanges(resource, metadata)) {
+            Messages.showErrorDialog(
+                project,
+                "Cannot propose changes for '${resource.name}' — it wasn't installed from a marketplace repository.",
+                "No Source Repository"
+            )
+            return
+        }
+
+        // Get token
+        val token = contributionService.getWriteToken()
+        if (token == null) {
+            Messages.showErrorDialog(
+                project,
+                "A GitHub personal access token with 'repo' scope is required.\nConfigure it in Settings → AI Skills Manager → GitHub Token.",
+                "Authentication Required"
+            )
+            return
+        }
+
+        // Parse source repo
+        val sourceRepoStr = metadata?.sourceRepo ?: resource.sourceRepo ?: return
+        val parsedRepo = contributionService.parseSourceRepo(sourceRepoStr) ?: run {
+            Messages.showErrorDialog(project, "Invalid source repository format.", "Error")
+            return
+        }
+        val owner = parsedRepo.first
+        val repo = parsedRepo.second
+
+        // Check push access
+        val hasPush = contributionService.checkPushAccess(token, owner, repo)
+        if (!hasPush) {
+            Messages.showErrorDialog(
+                project,
+                "You don't have write access to $owner/$repo with the current GitHub token.\n" +
+                        "Fork-based contributions may be supported in a future update.",
+                "No Write Access"
+            )
+            return
+        }
+
+        // Branch name
+        val defaultBranch = contributionService.generateBranchName(resource)
+        val branchName = Messages.showInputDialog(
+            project,
+            "Branch name for your proposed changes:",
+            "Propose Changes",
+            Messages.getQuestionIcon(),
+            defaultBranch,
+            null
+        )
+        if (branchName.isNullOrBlank()) return
+
+        // PR title
+        val prTitle = Messages.showInputDialog(
+            project,
+            "Pull request title:",
+            "Propose Changes",
+            Messages.getQuestionIcon(),
+            "Update ${resource.name}",
+            null
+        )
+        if (prTitle.isNullOrBlank()) return
+
+        // PR description (optional)
+        val prDescription = Messages.showInputDialog(
+            project,
+            "Pull request description (optional):",
+            "Propose Changes",
+            Messages.getQuestionIcon(),
+            "",
+            null
+        ) ?: ""
+
+        // Run the push workflow in background
+        ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Proposing changes for '${resource.name}'…", false) {
+            override fun run(indicator: ProgressIndicator) {
+                try {
+                    // Determine source branch from metadata — default to "main"
+                    val sourceBranch = "main" // metadata doesn't store branch in Rider's simpler format
+
+                    indicator.text = "Getting latest commit…"
+                    val baseSha = contributionService.getBranchHeadSha(token, owner, repo, sourceBranch)
+                        ?: throw RuntimeException("Could not get HEAD SHA for branch '$sourceBranch'")
+
+                    indicator.text = "Creating branch…"
+                    if (!contributionService.createBranch(token, owner, repo, branchName, baseSha)) {
+                        throw RuntimeException("Could not create branch '$branchName'. It may already exist.")
+                    }
+
+                    indicator.text = "Reading local files…"
+                    val localFiles = contributionService.readLocalFiles(resource)
+                    if (localFiles.isEmpty()) {
+                        throw RuntimeException("Could not read local files for '${resource.name}'.")
+                    }
+
+                    indicator.text = "Pushing changes…"
+                    val isSkill = resource.category == ResourceCategory.SKILLS
+                    // Determine file path in the repo from metadata
+                    // The metadata stores sourceRepo as "owner/repo", we need the file path
+                    // For skills, the path is typically "category/name" or just "name"
+                    val filePath = resource.category.id + "/" + resource.name
+
+                    if (isSkill && localFiles.size > 1) {
+                        val success = contributionService.commitMultipleFiles(
+                            token, owner, repo, branchName, baseSha,
+                            filePath, localFiles, "Update ${resource.name}"
+                        )
+                        if (!success) throw RuntimeException("Failed to commit files.")
+                    } else {
+                        for ((relativePath, content) in localFiles) {
+                            val fullPath = if (isSkill) "$filePath/$relativePath" else filePath
+                            if (!contributionService.commitSingleFile(
+                                    token, owner, repo, branchName,
+                                    fullPath, content, "Update ${resource.name}"
+                                )) {
+                                throw RuntimeException("Failed to commit $relativePath")
+                            }
+                        }
+                    }
+
+                    indicator.text = "Creating pull request…"
+                    val body = buildString {
+                        append(prDescription)
+                        append("\n\n---\n_Proposed via [AI Skills Manager](https://plugins.jetbrains.com/plugin/com.adlaws.aiskillsmanager)_")
+                    }
+                    val pr = contributionService.createPullRequest(
+                        token, owner, repo, branchName, sourceBranch, prTitle, body
+                    )
+
+                    ApplicationManager.getApplication().invokeLater {
+                        if (pr != null) {
+                            val open = Messages.showOkCancelDialog(
+                                project,
+                                "Pull request #${pr.first} created successfully!",
+                                "Changes Proposed",
+                                "Open in Browser",
+                                "Close",
+                                Messages.getInformationIcon()
+                            )
+                            if (open == Messages.OK) {
+                                try { Desktop.getDesktop().browse(java.net.URI(pr.second)) } catch (_: Exception) {}
+                            }
+                        } else {
+                            Messages.showErrorDialog(project, "Failed to create pull request.", "Error")
+                        }
+                    }
+                } catch (e: Exception) {
+                    ApplicationManager.getApplication().invokeLater {
+                        Messages.showErrorDialog(project, "Failed to propose changes: ${e.message}", "Error")
+                    }
+                }
+            }
+        })
+    }
+
+    private fun revertToRepository(resource: InstalledResource) {
+        val projectService = ProjectService.getInstance(project)
+        val allMeta = projectService.readAllInstallMetadata()
+        val metadata = allMeta[resource.name]
+        val sourceRepo = metadata?.sourceRepo ?: resource.sourceRepo
+
+        if (sourceRepo.isNullOrBlank()) {
+            Messages.showErrorDialog(
+                project,
+                "Cannot revert '${resource.name}' — no source repository information available.",
+                "No Source Repository"
+            )
+            return
+        }
+
+        // Offer Compare / Revert / Cancel
+        val choices = arrayOf("Revert", "Compare First", "Cancel")
+        val choice = Messages.showDialog(
+            project,
+            "Revert '${resource.name}' to the version in the source repository?\nThis will discard all local changes.",
+            "Revert to Repository Version",
+            choices,
+            1, // Default to "Compare First"
+            Messages.getWarningIcon()
+        )
+
+        when (choice) {
+            0 -> performRevert(resource, metadata)
+            1 -> showDiffThenRevert(resource, metadata)
+            // 2 or -1 = Cancel
+        }
+    }
+
+    private fun performRevert(resource: InstalledResource, metadata: InstallMetadata? = null) {
+        ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Reverting '${resource.name}'…", false) {
+            override fun run(indicator: ProgressIndicator) {
+                val resourceClient = ResourceClient().apply { syncSettings() }
+                val installService = InstallationService(resourceClient, ProjectService.getInstance(project))
+                val success = installService.revertResource(resource, metadata)
+                ApplicationManager.getApplication().invokeLater {
+                    if (success) {
+                        Messages.showInfoMessage(
+                            project,
+                            "Reverted '${resource.name}' to the repository version.",
+                            "Revert Complete"
+                        )
+                        refresh()
+                    } else {
+                        Messages.showErrorDialog(project, "Failed to revert '${resource.name}'.", "Error")
+                    }
+                }
+            }
+        })
+    }
+
+    private fun showDiffThenRevert(resource: InstalledResource, metadata: InstallMetadata? = null) {
+        ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Fetching upstream content…", true) {
+            override fun run(indicator: ProgressIndicator) {
+                val resourceClient = ResourceClient().apply { syncSettings() }
+                val installService = InstallationService(resourceClient, ProjectService.getInstance(project))
+                val upstreamContent = installService.fetchUpstreamContent(resource, metadata)
+
+                if (upstreamContent == null) {
+                    ApplicationManager.getApplication().invokeLater {
+                        Messages.showErrorDialog(project, "Could not fetch upstream content for '${resource.name}'.", "Error")
+                    }
+                    return
+                }
+
+                // Read local content
+                val localPath = Paths.get(resource.path)
+                val localContent = try {
+                    if (Files.isDirectory(localPath)) {
+                        val skillMd = localPath.resolve("SKILL.md")
+                        if (Files.exists(skillMd)) Files.readString(skillMd) else "(no SKILL.md)"
+                    } else {
+                        Files.readString(localPath)
+                    }
+                } catch (_: Exception) { "(unable to read local file)" }
+
+                ApplicationManager.getApplication().invokeLater {
+                    // Show diff
+                    val factory = DiffContentFactory.getInstance()
+                    val localDiffContent = factory.create(localContent)
+                    val upstreamDiffContent = factory.create(upstreamContent)
+                    val diffRequest = SimpleDiffRequest(
+                        "Revert: ${resource.name}",
+                        localDiffContent,
+                        upstreamDiffContent,
+                        "Local",
+                        "Repository"
+                    )
+                    DiffManager.getInstance().showDiff(project, diffRequest)
+
+                    // Ask after viewing diff
+                    val confirm = Messages.showOkCancelDialog(
+                        project,
+                        "Revert '${resource.name}' to the repository version?",
+                        "Confirm Revert",
+                        "Revert",
+                        "Cancel",
+                        Messages.getWarningIcon()
+                    )
+                    if (confirm == Messages.OK) {
+                        performRevert(resource, metadata)
+                    }
+                }
+            }
+        })
     }
 
     private fun openResource(resource: InstalledResource) {

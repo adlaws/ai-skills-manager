@@ -5,6 +5,7 @@
  * Other resources (single files) are downloaded individually.
  */
 
+import * as crypto from 'crypto';
 import * as path from 'path';
 import * as os from 'os';
 import * as vscode from 'vscode';
@@ -773,6 +774,70 @@ export class InstallationService {
     private static readonly META_FILENAME = '.ai-skills-meta.json';
 
     /**
+     * Compute a SHA-256 content hash for a resource on disk.
+     * For single files: hash of the file content.
+     * For skills (directories): sorted (relativePath + content) pairs hashed together.
+     */
+    async computeContentHash(
+        location: string,
+        category: ResourceCategory,
+    ): Promise<string | undefined> {
+        try {
+            const wf = this.pathService.getWorkspaceFolderForLocation(location);
+            const uri = this.pathService.resolveLocationToUri(location, wf);
+            if (!uri) { return undefined; }
+
+            const isSkill = category === ResourceCategory.Skills;
+
+            if (isSkill) {
+                return this.computeDirectoryHash(uri);
+            } else {
+                const content = await vscode.workspace.fs.readFile(uri);
+                return crypto.createHash('sha256').update(content).digest('hex');
+            }
+        } catch {
+            return undefined;
+        }
+    }
+
+    /**
+     * Compute a SHA-256 hash for a directory by hashing all file contents
+     * sorted by relative path. Uses the same algorithm at install time and
+     * check time for consistency.
+     */
+    private async computeDirectoryHash(dirUri: vscode.Uri): Promise<string> {
+        const entries: { relativePath: string; content: Uint8Array }[] = [];
+        await this.collectFiles(dirUri, dirUri, entries);
+        entries.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+
+        const hash = crypto.createHash('sha256');
+        for (const entry of entries) {
+            hash.update(entry.relativePath);
+            hash.update(entry.content);
+        }
+        return hash.digest('hex');
+    }
+
+    private async collectFiles(
+        baseUri: vscode.Uri,
+        currentUri: vscode.Uri,
+        entries: { relativePath: string; content: Uint8Array }[],
+    ): Promise<void> {
+        const dirEntries = await vscode.workspace.fs.readDirectory(currentUri);
+        for (const [name, type] of dirEntries) {
+            if (name.startsWith('.')) { continue; }
+            const childUri = vscode.Uri.joinPath(currentUri, name);
+            if (type & vscode.FileType.Directory) {
+                await this.collectFiles(baseUri, childUri, entries);
+            } else if (type & vscode.FileType.File) {
+                const content = await vscode.workspace.fs.readFile(childUri);
+                const relativePath = childUri.path.substring(baseUri.path.length + 1);
+                entries.push({ relativePath, content });
+            }
+        }
+    }
+
+    /**
      * Save install metadata (SHA + source repo) for update detection.
      * Metadata is stored in a `.ai-skills-meta.json` file in the category
      * install directory (the parent of the resource file/folder).
@@ -785,6 +850,10 @@ export class InstallationService {
             if (!baseDir) {
                 return;
             }
+
+            // Compute content hash of what we just installed
+            const resourceLocation = `${installLocation}/${item.name}`;
+            const contentHash = await this.computeContentHash(resourceLocation, item.category);
 
             const metaUri = vscode.Uri.joinPath(baseDir, InstallationService.META_FILENAME);
             let metadata: InstallMetadata = {};
@@ -810,6 +879,7 @@ export class InstallationService {
                         filePath: item.file.path,
                     }
                     : undefined,
+                contentHash,
             };
 
             await vscode.workspace.fs.writeFile(
@@ -940,5 +1010,205 @@ export class InstallationService {
         }
 
         return false;
+    }
+
+    /**
+     * Revert an installed resource to the version in the source repository.
+     * Fetches upstream content, optionally shows a diff, then overwrites.
+     * Returns true if the revert succeeded.
+     */
+    async revertResource(
+        resource: InstalledResource,
+        metadata?: InstallMetadata[string],
+        showDiff: boolean = true,
+    ): Promise<boolean> {
+        const sourceRepo = metadata?.sourceRepo ?? resource.sourceRepo;
+        if (!sourceRepo?.owner || !sourceRepo?.repo || !sourceRepo?.filePath) {
+            vscode.window.showWarningMessage(
+                `Cannot revert "${resource.name}" — no source repository information available.`,
+            );
+            return false;
+        }
+
+        const { owner, repo: repoName, branch, filePath } = sourceRepo;
+        const isSkill = resource.category === ResourceCategory.Skills;
+
+        return vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: `Reverting "${resource.name}"…`,
+                cancellable: true,
+            },
+            async (progress, token) => {
+                try {
+                    progress.report({ increment: 0, message: 'Fetching upstream content…' });
+
+                    const wf = this.pathService.getWorkspaceFolderForLocation(resource.location);
+                    const localUri = this.pathService.resolveLocationToUri(resource.location, wf);
+                    if (!localUri) {
+                        vscode.window.showErrorMessage(`Cannot resolve local path for "${resource.name}".`);
+                        return false;
+                    }
+
+                    if (token.isCancellationRequested) { return false; }
+
+                    if (isSkill) {
+                        // Multi-file skill — fetch all files from upstream
+                        const repoObj = { owner, repo: repoName, branch, enabled: true };
+                        let upstreamFiles: { path: string; content: string }[];
+
+                        try {
+                            upstreamFiles = await this.client.fetchSkillFiles(repoObj, filePath);
+                        } catch {
+                            // Fall back to Contents API
+                            const dirContents = await this.client.fetchDirectoryContents(repoObj, filePath);
+                            const fileEntries = dirContents.filter(f => f.type === 'file');
+                            upstreamFiles = await Promise.all(
+                                fileEntries.map(async (f) => {
+                                    const basePath = filePath + '/';
+                                    const relativePath = f.path.startsWith(basePath)
+                                        ? f.path.substring(basePath.length)
+                                        : f.name;
+                                    const content = await this.client.fetchFileContent(f.download_url);
+                                    return { path: relativePath, content };
+                                }),
+                            );
+                        }
+
+                        if (token.isCancellationRequested) { return false; }
+
+                        if (showDiff) {
+                            // Show diff of the main SKILL.md file
+                            const mainFile = upstreamFiles.find(f =>
+                                f.path === 'SKILL.md' || f.path.endsWith('/SKILL.md'),
+                            );
+                            if (mainFile) {
+                                const localSkillMd = vscode.Uri.joinPath(localUri, 'SKILL.md');
+                                const tempUri = vscode.Uri.parse(`untitled:${resource.name}.upstream`);
+                                await vscode.workspace.openTextDocument(tempUri);
+                                const edit = new vscode.WorkspaceEdit();
+                                edit.insert(tempUri, new vscode.Position(0, 0), mainFile.content);
+                                await vscode.workspace.applyEdit(edit);
+
+                                await vscode.commands.executeCommand(
+                                    'vscode.diff',
+                                    localSkillMd,
+                                    tempUri,
+                                    `${resource.name}: Local ↔ Repository`,
+                                );
+                            }
+
+                            const confirm = await vscode.window.showWarningMessage(
+                                `Revert "${resource.name}" to the repository version? This will discard all local changes (${upstreamFiles.length} file${upstreamFiles.length > 1 ? 's' : ''}).`,
+                                { modal: true },
+                                'Revert',
+                            );
+                            if (confirm !== 'Revert') { return false; }
+                        }
+
+                        progress.report({ increment: 50, message: 'Writing files…' });
+
+                        // Delete existing and rewrite all files
+                        await vscode.workspace.fs.delete(localUri, { recursive: true });
+                        await vscode.workspace.fs.createDirectory(localUri);
+
+                        for (const file of upstreamFiles) {
+                            const fileUri = vscode.Uri.joinPath(localUri, file.path);
+                            const parentDir = vscode.Uri.joinPath(fileUri, '..');
+                            await vscode.workspace.fs.createDirectory(parentDir);
+                            await vscode.workspace.fs.writeFile(
+                                fileUri,
+                                new TextEncoder().encode(file.content),
+                            );
+                        }
+                    } else {
+                        // Single-file resource
+                        const upstreamContent = await this.client.fetchRawContent(
+                            owner, repoName, filePath, branch,
+                        );
+
+                        if (token.isCancellationRequested) { return false; }
+
+                        if (showDiff) {
+                            const tempUri = vscode.Uri.parse(`untitled:${resource.name}.upstream`);
+                            await vscode.workspace.openTextDocument(tempUri);
+                            const edit = new vscode.WorkspaceEdit();
+                            edit.insert(tempUri, new vscode.Position(0, 0), upstreamContent);
+                            await vscode.workspace.applyEdit(edit);
+
+                            await vscode.commands.executeCommand(
+                                'vscode.diff',
+                                localUri,
+                                tempUri,
+                                `${resource.name}: Local ↔ Repository`,
+                            );
+
+                            const confirm = await vscode.window.showWarningMessage(
+                                `Revert "${resource.name}" to the repository version? This will discard all local changes.`,
+                                { modal: true },
+                                'Revert',
+                            );
+                            if (confirm !== 'Revert') { return false; }
+                        }
+
+                        progress.report({ increment: 50, message: 'Writing file…' });
+
+                        await vscode.workspace.fs.writeFile(
+                            localUri,
+                            new TextEncoder().encode(upstreamContent),
+                        );
+                    }
+
+                    // Update the metadata SHA and contentHash to match upstream
+                    progress.report({ increment: 40, message: 'Updating metadata…' });
+                    const upstreamSha = await this.client.fetchResourceSha(
+                        owner, repoName, branch, filePath,
+                    );
+                    // Recompute contentHash from what we just wrote
+                    const newContentHash = await this.computeContentHash(
+                        resource.location, resource.category,
+                    );
+                    if (upstreamSha && metadata) {
+                        metadata.sha = upstreamSha;
+                        metadata.contentHash = newContentHash;
+                        // Re-save metadata
+                        const installLocation = this.pathService.getInstallLocationForScope(
+                            resource.category, resource.scope,
+                        );
+                        const metaWf = this.pathService.getWorkspaceFolderForLocation(installLocation);
+                        const baseDir = this.pathService.resolveLocationToUri(installLocation, metaWf);
+                        if (baseDir) {
+                            const metaUri = vscode.Uri.joinPath(baseDir, InstallationService.META_FILENAME);
+                            let allMetadata: InstallMetadata = {};
+                            try {
+                                const existing = new TextDecoder().decode(
+                                    await vscode.workspace.fs.readFile(metaUri),
+                                );
+                                allMetadata = JSON.parse(existing);
+                            } catch { /* ignore */ }
+                            allMetadata[resource.name] = {
+                                sha: upstreamSha,
+                                installedAt: metadata.installedAt,
+                                sourceRepo: metadata.sourceRepo,
+                                contentHash: newContentHash,
+                            };
+                            await vscode.workspace.fs.writeFile(
+                                metaUri,
+                                new TextEncoder().encode(JSON.stringify(allMetadata, null, 2)),
+                            );
+                        }
+                    }
+
+                    vscode.window.showInformationMessage(
+                        `Reverted "${resource.name}" to the repository version.`,
+                    );
+                    return true;
+                } catch (error) {
+                    const msg = error instanceof Error ? error.message : String(error);
+                    vscode.window.showErrorMessage(`Failed to revert "${resource.name}": ${msg}`);
+                    return false;
+                }
+            },
+        );
     }
 }

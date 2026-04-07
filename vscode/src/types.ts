@@ -157,6 +157,8 @@ export interface InstallMetadata {
         sha: string;
         installedAt: string;
         sourceRepo?: { owner: string; repo: string; branch: string; filePath: string };
+        /** SHA-256 hash of installed content — used to detect local modifications. */
+        contentHash?: string;
     };
 }
 
