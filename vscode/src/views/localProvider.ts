@@ -23,6 +23,7 @@ import {
     CATEGORY_ICONS,
     GitHubFile,
 } from '../types';
+import { parseFrontmatter } from '../services/frontmatterService';
 
 // ── Tree items ──────────────────────────────────────────────────
 
@@ -285,7 +286,8 @@ export class LocalTreeDataProvider
                         this.debouncedRefresh();
                     },
                 );
-                watcher.on('error', () => {
+                watcher.on('error', (err) => {
+                    console.warn(`File watcher error for ${collection.path}:`, err);
                     this.debouncedRefresh();
                 });
                 this.watchers.set(collection.path, watcher);
@@ -529,40 +531,14 @@ export class LocalTreeDataProvider
                     let description: string | undefined;
                     let license: string | undefined;
                     let compatibility: string | undefined;
-                    let bodyContent: string | undefined;
-                    let fullContent: string | undefined;
                     try {
                         const raw = new TextDecoder().decode(
                             await fs.readFile(skillMdUri),
                         );
-                        fullContent = raw;
-                        const fmMatch = raw.match(
-                            /^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/,
-                        );
-                        if (fmMatch) {
-                            const yaml = fmMatch[1];
-                            bodyContent = fmMatch[2];
-                            const descMatch = yaml.match(
-                                /^description:\s*(.+)$/m,
-                            );
-                            const licMatch = yaml.match(
-                                /^license:\s*(.+)$/m,
-                            );
-                            const compatMatch = yaml.match(
-                                /^compatibility:\s*(.+)$/m,
-                            );
-                            if (descMatch) {
-                                description = descMatch[1].trim();
-                            }
-                            if (licMatch) {
-                                license = licMatch[1].trim();
-                            }
-                            if (compatMatch) {
-                                compatibility = compatMatch[1].trim();
-                            }
-                        } else {
-                            bodyContent = raw;
-                        }
+                        const parsed = parseFrontmatter(raw);
+                        description = parsed.description || undefined;
+                        license = parsed.license;
+                        compatibility = parsed.compatibility;
                     } catch {
                         // No SKILL.md – skip this folder
                         continue;
@@ -590,8 +566,7 @@ export class LocalTreeDataProvider
                         description,
                         license,
                         compatibility,
-                        bodyContent,
-                        fullContent,
+                        // fullContent and bodyContent loaded on demand in viewDetails
                     });
                 } else {
                     // Other resources are individual files
@@ -615,22 +590,13 @@ export class LocalTreeDataProvider
                         type: 'file',
                     };
 
-                    let content: string | undefined;
-                    try {
-                        content = new TextDecoder().decode(
-                            await fs.readFile(fileUri),
-                        );
-                    } catch {
-                        // ignore
-                    }
-
                     items.push({
                         id: `local-collection:${collection.path}/${category}/${name}`,
                         name,
                         category,
                         file,
                         repo: this.buildLocalRepo(collection),
-                        content,
+                        // content loaded on demand in viewDetails
                     });
                 }
             }

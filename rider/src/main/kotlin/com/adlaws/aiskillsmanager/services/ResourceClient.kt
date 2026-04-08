@@ -175,6 +175,17 @@ class ResourceClient {
         cache.clear()
     }
 
+    /**
+     * Clear cached data for a single repository.
+     */
+    fun clearCacheForRepo(repoKey: String) {
+        cache.keys().toList().forEach { key ->
+            if (key.contains(repoKey)) {
+                cache.remove(key)
+            }
+        }
+    }
+
     // ---- Private implementation ----
 
     private fun fetchViaContentsApi(repo: ResourceRepository): Map<ResourceCategory, List<ResourceItem>> {

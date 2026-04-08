@@ -416,6 +416,10 @@ class LocalCollectionsPanel(private val project: Project) : Disposable {
         menu.add(JMenuItem("Delete ${items.size} from Disk").apply {
             addActionListener { bulkDeleteResources(items) }
         })
+        menu.addSeparator()
+        menu.add(JMenuItem("Suggest Addition\u2026").apply {
+            addActionListener { suggestAdditionFromLocal(items.first()) }
+        })
 
         menu.show(tree, e.x, e.y)
     }
@@ -466,6 +470,10 @@ class LocalCollectionsPanel(private val project: Project) : Disposable {
         menu.addSeparator()
         menu.add(JMenuItem("Delete from Disk").apply {
             addActionListener { deleteResource(item) }
+        })
+        menu.addSeparator()
+        menu.add(JMenuItem("Suggest Addition\u2026").apply {
+            addActionListener { suggestAdditionFromLocal(item) }
         })
 
         menu.show(tree, e.x, e.y)
@@ -543,6 +551,158 @@ class LocalCollectionsPanel(private val project: Project) : Disposable {
         } catch (e: Exception) {
             Messages.showErrorDialog(project, "Failed to delete: ${e.message}", "Error")
         }
+    }
+
+    private fun suggestAdditionFromLocal(item: ResourceItem) {
+        val settings = SettingsService.getInstance()
+        val repos = settings.getRepositories().filter { it.enabled }
+        if (repos.isEmpty()) {
+            Messages.showInfoMessage(project, "No repositories configured. Add repositories in AI Skills Manager settings.", "No Repositories")
+            return
+        }
+
+        val validRepos = repos.filter { repo ->
+            repo.skillsPath.isNullOrBlank() || item.category == ResourceCategory.SKILLS
+        }
+        if (validRepos.isEmpty()) {
+            Messages.showWarningDialog(
+                project,
+                "All configured repositories are skills-only and cannot accept ${item.category.label} resources.",
+                "No Valid Target"
+            )
+            return
+        }
+
+        val repoLabels = validRepos.map { it.label ?: "${it.owner}/${it.repo}" }.toTypedArray()
+        val selection = Messages.showChooseDialog(
+            project, "Select target repository for \"${item.name}\":",
+            "Suggest Addition", null, repoLabels, repoLabels.first()
+        )
+        if (selection < 0) return
+        val targetRepo = validRepos[selection]
+
+        val contributionService = ContributionService.getInstance(project)
+        val token = contributionService.getWriteToken()
+        if (token == null) {
+            Messages.showErrorDialog(project, "A GitHub token with 'repo' scope is required. Configure it in Settings.", "Authentication Required")
+            return
+        }
+
+        val sanitized = item.name.lowercase().replace(Regex("[^a-z0-9-]"), "-").replace(Regex("-+"), "-").trim('-')
+        val date = java.time.LocalDate.now().toString()
+        val defaultBranch = "ai-skills-manager/suggest/${item.category.id}/$sanitized/$date"
+        val branchName = Messages.showInputDialog(project, "Branch name for your suggestion:", "Branch Name", null, defaultBranch, null)
+        if (branchName.isNullOrBlank()) return
+
+        val defaultTitle = "Add ${item.category.id} \"${item.name}\""
+        val prTitle = Messages.showInputDialog(project, "Pull request title:", "PR Title", null, defaultTitle, null)
+        if (prTitle.isNullOrBlank()) return
+
+        val prDescription = Messages.showInputDialog(project, "Pull request description (optional):", "PR Description", null, "", null) ?: ""
+
+        ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Suggesting \"${item.name}\"…", false) {
+            override fun run(indicator: ProgressIndicator) {
+                try {
+                    indicator.text = "Checking repository access…"
+                    if (!contributionService.checkPushAccess(token, targetRepo.owner, targetRepo.repo)) {
+                        ApplicationManager.getApplication().invokeLater {
+                            Messages.showErrorDialog(project, "You don't have write access to ${targetRepo.owner}/${targetRepo.repo}.", "Access Denied")
+                        }
+                        return
+                    }
+
+                    indicator.text = "Reading resource files…"
+                    val localPath = Paths.get(item.localCollectionPath ?: item.path)
+                    val diskPath = if (item.category == ResourceCategory.SKILLS && !Files.isDirectory(localPath)) {
+                        localPath.parent  // SKILL.md → parent dir
+                    } else {
+                        localPath
+                    }
+                    val files = contributionService.readFilesFromDisk(diskPath, item.name, item.category)
+                    if (files.isEmpty()) {
+                        ApplicationManager.getApplication().invokeLater {
+                            Messages.showErrorDialog(project, "Could not read resource content from disk.", "Error")
+                        }
+                        return
+                    }
+
+                    indicator.text = "Checking for existing resource…"
+                    val basePath = contributionService.computeTargetPath(item.name, item.category, targetRepo)
+                    val checkPath = if (item.category == ResourceCategory.SKILLS) "$basePath/SKILL.md" else basePath
+                    if (contributionService.fileExistsInRepo(token, targetRepo.owner, targetRepo.repo, targetRepo.branch, checkPath)) {
+                        ApplicationManager.getApplication().invokeLater {
+                            val proceed = Messages.showYesNoDialog(
+                                project,
+                                "A resource at \"$basePath\" already exists in ${targetRepo.owner}/${targetRepo.repo}. Continue anyway?",
+                                "Resource Exists",
+                                Messages.getWarningIcon()
+                            )
+                            if (proceed == Messages.YES) {
+                                doSuggestInBackground(contributionService, item.name, item.category, files, targetRepo, token, branchName, prTitle, prDescription)
+                            }
+                        }
+                        return
+                    }
+
+                    indicator.text = "Creating pull request…"
+                    val result = contributionService.suggestAddition(item.name, item.category, files, targetRepo, token, branchName, prTitle, prDescription)
+                    ApplicationManager.getApplication().invokeLater {
+                        if (result != null) {
+                            val (prNumber, prUrl) = result
+                            val open = Messages.showYesNoDialog(
+                                project,
+                                "Pull request #$prNumber created on ${targetRepo.owner}/${targetRepo.repo}!\n\nOpen in browser?",
+                                "Success",
+                                Messages.getInformationIcon()
+                            )
+                            if (open == Messages.YES) {
+                                Desktop.getDesktop().browse(java.net.URI(prUrl))
+                            }
+                        } else {
+                            Messages.showErrorDialog(project, "Failed to create pull request.", "Error")
+                        }
+                    }
+                } catch (e: Exception) {
+                    ApplicationManager.getApplication().invokeLater {
+                        Messages.showErrorDialog(project, "Failed to suggest addition: ${e.message}", "Error")
+                    }
+                }
+            }
+        })
+    }
+
+    private fun doSuggestInBackground(
+        contributionService: ContributionService, name: String, category: ResourceCategory,
+        files: List<Pair<String, String>>, targetRepo: ResourceRepository,
+        token: String, branchName: String, prTitle: String, prDescription: String
+    ) {
+        ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Creating pull request…", false) {
+            override fun run(indicator: ProgressIndicator) {
+                try {
+                    val result = contributionService.suggestAddition(name, category, files, targetRepo, token, branchName, prTitle, prDescription)
+                    ApplicationManager.getApplication().invokeLater {
+                        if (result != null) {
+                            val (prNumber, prUrl) = result
+                            val open = Messages.showYesNoDialog(
+                                project,
+                                "Pull request #$prNumber created on ${targetRepo.owner}/${targetRepo.repo}!\n\nOpen in browser?",
+                                "Success",
+                                Messages.getInformationIcon()
+                            )
+                            if (open == Messages.YES) {
+                                Desktop.getDesktop().browse(java.net.URI(prUrl))
+                            }
+                        } else {
+                            Messages.showErrorDialog(project, "Failed to create pull request.", "Error")
+                        }
+                    }
+                } catch (e: Exception) {
+                    ApplicationManager.getApplication().invokeLater {
+                        Messages.showErrorDialog(project, "Failed: ${e.message}", "Error")
+                    }
+                }
+            }
+        })
     }
 
     private fun disconnectCollection(path: String) {

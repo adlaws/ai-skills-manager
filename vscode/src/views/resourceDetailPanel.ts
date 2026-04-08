@@ -6,6 +6,7 @@
  * other resources show the file content.
  */
 
+import * as crypto from 'crypto';
 import * as vscode from 'vscode';
 import MarkdownIt from 'markdown-it';
 import { ResourceItem, ResourceCategory, CATEGORY_LABELS, InstalledResource } from '../types';
@@ -135,7 +136,10 @@ export class ResourceDetailPanel {
                         break;
                     }
                     case 'openExternal':
-                        if (message.url) {
+                        if (
+                            typeof message.url === 'string' &&
+                            /^https?:\/\//i.test(message.url)
+                        ) {
                             vscode.env.openExternal(
                                 vscode.Uri.parse(message.url),
                             );
@@ -504,12 +508,6 @@ th { background: var(--vscode-textBlockQuote-background); }
     }
 
     private _getNonce(): string {
-        let text = '';
-        const chars =
-            'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-        for (let i = 0; i < 32; i++) {
-            text += chars.charAt(Math.floor(Math.random() * chars.length));
-        }
-        return text;
+        return crypto.randomBytes(16).toString('hex');
     }
 }

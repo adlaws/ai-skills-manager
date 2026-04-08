@@ -9,6 +9,7 @@ Works in **Rider**, **IntelliJ IDEA**, **WebStorm**, **PyCharm**, and all other 
 ## Features
 
 * **Resource Marketplace** — Browse Chat Modes, Instructions, Prompts, Agents, and Skills from multiple GitHub repositories
+* **Per-Repository Refresh** — Right-click a repository node in the Marketplace tree to refresh just that repo's resources, or use the toolbar refresh button to reload everything
 * **Local Collections** — Browse and manage resources from local folders on disk, with the same category structure as the Marketplace
 * **Search** — Quickly find resources by name or keyword in both Marketplace and Local Collections
 * **One-Click Install** — Download single files or install skill folders directly into your project or globally to your home directory
@@ -35,6 +36,7 @@ Works in **Rider**, **IntelliJ IDEA**, **WebStorm**, **PyCharm**, and all other 
 * **Resource Usage Detection** — Scan project files to discover which installed resources are actually referenced in configuration files like `copilot-instructions.md`, `settings.json`, `mcp.json`, `AGENTS.md`, and more
 * **File Watchers** — Local collection and install directories are watched for changes; the tree views refresh automatically when files are added or removed on disk
 * **Propose Changes** — Push local modifications back to the source GitHub repository as a pull request, directly from the plugin
+* **Suggest Addition** — Right-click any resource (marketplace, local, or installed) and suggest adding it to a different GitHub repository via a pull request
 * **Revert to Repository Version** — Restore a modified resource to its original installed state by fetching the upstream content
 * **Modification Detection** — Automatically detects when installed resources have been locally modified, showing a "Modified" indicator in context menus and detail panels and enabling revert/propose actions
 
@@ -89,6 +91,7 @@ Double-click any resource in the Marketplace, Local Collections, or Installed tr
    * **Copy to Local Collection** — copy the resource into a configured local collection folder
    * **Create Resource Pack** — create a pack manifest from this resource
    * **Propose Changes…** — push your local modifications back to the source repository as a pull request (only for resources installed from a marketplace repository that have been locally modified)
+   * **Suggest Addition…** — suggest adding this resource to a different GitHub repository via a pull request
    * **Revert to Repository Version…** — restore the resource to its original installed state from the upstream repository (only for locally modified resources with source repo metadata)
    * **Remove** — delete the installed file or folder
 
@@ -348,6 +351,24 @@ If you've modified an installed resource and want to undo your changes, you can 
 1. **Right-click** an installed resource that has been locally modified and choose **Revert to Repository Version…**, or click the **Revert to Repository Version…** button in the resource detail panel
 2. Confirm that you want to overwrite your local changes
 3. The plugin fetches the original content from the upstream repository and replaces your local copy
+
+### Suggest Addition
+
+You can suggest adding any resource — from the Marketplace, a Local Collection, or Installed — to a different GitHub repository you have write access to:
+
+1. **Right-click** any resource in the Marketplace, Local Collections, or Installed tree and choose **Suggest Addition…**
+2. Select a **target repository** from your configured repositories
+3. The plugin uses your configured GitHub personal access token to verify push access to the target repository
+4. Enter a **branch name** (auto-generated as `ai-skills-manager/suggest/<category>/<name>/<date>`, editable)
+5. Enter a **PR title** and optional **description**
+6. The plugin creates the branch, commits the resource file(s), and opens a pull request on the target repo
+7. A dialog shows the PR number with an **Open in Browser** option
+
+**Notes:**
+* Resource content is fetched from GitHub for Marketplace items, or read from disk for Local Collection and Installed items
+* If the resource already exists in the target repository, a warning is shown — you can still proceed (the PR will show the differences)
+* Repositories configured with a `skillsPath` (skills-only repos) will only accept skill resources; suggesting other categories to these repos shows a warning
+* Unlike **Propose Changes** (which pushes edits back to a resource's *source* repo), **Suggest Addition** copies a resource *to a different repo entirely*
 4. The content hash is updated and the modification indicator is removed
 
 > **Note:** Only resources installed from a marketplace repository (with `sourceRepo` metadata) that have been locally modified will show the revert option.
@@ -446,6 +467,7 @@ Available from the AI Skills Manager tool window toolbar:
 | Action | Description |
 |---|---|
 | Refresh All | Refresh marketplace, local collections, and installed data |
+| Refresh Repository | Right-click a repository node to refresh just that repo |
 | Check for Updates | Check installed resources for upstream changes |
 | Update All Resources | Update all resources with available updates |
 | Create New Resource | Scaffold a new resource from a template |
@@ -597,6 +619,7 @@ The Rider plugin mirrors the VS Code extension's architecture:
 * **Configuration export/import**: Exports capture a snapshot of all relevant settings. Import supports merge (additive, skips duplicates) and replace (full overwrite) strategies.
 * **Usage detection**: Scans well-known project files (e.g. `copilot-instructions.md`, `settings.json`, `mcp.json`, `AGENTS.md`, `CLAUDE.md`) for string matches of installed resource names.
 * **Propose changes**: Installed resources with source repo metadata can push local modifications back to the upstream repository. Creates a branch, commits file(s) via the GitHub REST API (Contents API for single files, Git Data API for multi-file skills), and opens a pull request. Requires a GitHub PAT with `repo` scope. Targets direct collaborators only.
+* **Suggest addition**: Any resource (marketplace, local, or installed) can be suggested for addition to a different target repository via a pull request. Content is fetched from GitHub for marketplace items or read from disk for local/installed items. Skills-only repos only accept skill resources.
 * **Revert to repository**: Modified resources can be reverted to their original upstream content. The plugin fetches the content from the source repository and overwrites the local copy, updating the stored content hash.
 * **Status bar**: Shows installed count and update count; clicking opens a popup menu with shortcuts to common actions.
 * **File watchers**: Uses IntelliJ's `VirtualFileManager` / `BulkFileListener` to watch local collection and install directories for changes, triggering debounced tree refreshes.

@@ -18,6 +18,7 @@ import {
     CacheEntry,
     ALL_CATEGORIES,
 } from '../types';
+import { parseFrontmatter } from '../services/frontmatterService';
 
 export class ResourceClient {
     private static readonly API_URL = 'https://api.github.com';
@@ -25,6 +26,7 @@ export class ResourceClient {
     private cache: Map<string, CacheEntry<unknown>> = new Map();
     private cachedAuthToken: string | undefined;
     private authTokenChecked = false;
+    private pendingEnrichments: Promise<void>[] = [];
 
     constructor(private readonly context: vscode.ExtensionContext) { }
 
@@ -37,6 +39,7 @@ export class ResourceClient {
     async fetchAllResources(): Promise<{
         data: Map<string, Map<ResourceCategory, ResourceItem[]>>;
         failed: Set<string>;
+        enrichmentComplete: Promise<void>;
     }> {
         const config = vscode.workspace.getConfiguration('aiSkillsManager');
         const repos = config.get<ResourceRepository[]>('repositories', []);
@@ -44,24 +47,38 @@ export class ResourceClient {
 
         const data = new Map<string, Map<ResourceCategory, ResourceItem[]>>();
         const failed = new Set<string>();
+        this.pendingEnrichments = [];
 
         await vscode.window.withProgress(
             { location: vscode.ProgressLocation.Window, title: 'Fetching resources…' },
-            async (progress) => {
-                for (const repo of enabledRepos) {
-                    const key = this.repoKey(repo);
-                    progress.report({ message: key });
-                    try {
+            async () => {
+                const results = await Promise.allSettled(
+                    enabledRepos.map(async (repo) => {
+                        const key = this.repoKey(repo);
                         const repoData = await this.fetchResourcesFromRepo(repo);
-                        data.set(key, repoData);
-                    } catch (error) {
-                        const msg = error instanceof Error ? error.message : String(error);
-                        console.warn(`Failed to fetch from ${key}: ${msg}`);
-                        failed.add(key);
+                        return { key, repoData };
+                    }),
+                );
+
+                for (const result of results) {
+                    if (result.status === 'fulfilled') {
+                        data.set(result.value.key, result.value.repoData);
+                    } else {
+                        const msg = result.reason instanceof Error ? result.reason.message : String(result.reason);
+                        // Extract repo key from the error context
+                        console.warn(`Failed to fetch repo: ${msg}`);
                     }
                 }
             },
         );
+
+        // Identify failed repos by diffing enabledRepos against loaded data
+        for (const repo of enabledRepos) {
+            const key = this.repoKey(repo);
+            if (!data.has(key)) {
+                failed.add(key);
+            }
+        }
 
         if (failed.size > 0) {
             const names = [...failed].join(', ');
@@ -70,7 +87,9 @@ export class ResourceClient {
             );
         }
 
-        return { data, failed };
+        const enrichmentComplete = Promise.allSettled(this.pendingEnrichments).then(() => { });
+
+        return { data, failed, enrichmentComplete };
     }
 
     /**
@@ -150,7 +169,8 @@ export class ResourceClient {
         filePath: string,
         branch: string,
     ): Promise<string> {
-        const url = `${ResourceClient.RAW_URL}/${owner}/${repo}/${branch}/${filePath}`;
+        const encodedPath = filePath.split('/').map(encodeURIComponent).join('/');
+        const url = `${ResourceClient.RAW_URL}/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(branch)}/${encodedPath}`;
         return this.fetchFileContent(url);
     }
 
@@ -160,8 +180,11 @@ export class ResourceClient {
     async fetchDirectoryContents(
         repo: ResourceRepository,
         dirPath: string,
+        maxDepth = 10,
+        _depth = 0,
     ): Promise<GitHubFile[]> {
-        const url = `${ResourceClient.API_URL}/repos/${repo.owner}/${repo.repo}/contents/${dirPath}`;
+        const encodedDir = dirPath.split('/').map(encodeURIComponent).join('/');
+        const url = `${ResourceClient.API_URL}/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/contents/${encodedDir}`;
         const response = await this.fetchWithAuth(url);
         if (!response.ok) {
             throw new Error(`Failed to fetch directory: ${response.status}`);
@@ -173,7 +196,11 @@ export class ResourceClient {
         for (const item of items) {
             allFiles.push(item);
             if (item.type === 'dir') {
-                const subFiles = await this.fetchDirectoryContents(repo, item.path);
+                if (_depth >= maxDepth) {
+                    console.warn(`fetchDirectoryContents: max depth (${maxDepth}) reached at ${item.path}, skipping subdirectory`);
+                    continue;
+                }
+                const subFiles = await this.fetchDirectoryContents(repo, item.path, maxDepth, _depth + 1);
                 allFiles.push(...subFiles);
             }
         }
@@ -222,9 +249,13 @@ export class ResourceClient {
         filePath: string,
     ): Promise<string | undefined> {
         try {
-            const url = `${ResourceClient.API_URL}/repos/${owner}/${repo}/contents/${filePath}?ref=${branch}`;
+            const encodedPath = filePath.split('/').map(encodeURIComponent).join('/');
+            const url = `${ResourceClient.API_URL}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodedPath}?ref=${encodeURIComponent(branch)}`;
             const response = await this.fetchWithAuth(url);
             if (!response.ok) {
+                if (response.status !== 404) {
+                    console.warn(`fetchResourceSha: unexpected ${response.status} for ${owner}/${repo}/${filePath}`);
+                }
                 return undefined;
             }
             const data = (await response.json()) as { sha?: string } | unknown[];
@@ -239,13 +270,14 @@ export class ResourceClient {
                 return entry?.sha;
             }
             return data.sha;
-        } catch {
+        } catch (error) {
+            console.warn(`fetchResourceSha failed for ${owner}/${repo}/${filePath}:`, error);
             return undefined;
         }
     }
 
     /**
-     * Get a GitHub auth token with write (repo) scope.
+     * Get a GitHub auth token with write(repo) scope.
      * Used by ContributionService for pushing changes and creating PRs.
      * This always prompts the user since write access is a privilege escalation.
      */
@@ -281,6 +313,16 @@ export class ResourceClient {
         this.authTokenChecked = false;
     }
 
+    /** Clear cached data for a single repository. */
+    clearCacheForRepo(repo: ResourceRepository): void {
+        const prefix = this.repoKey(repo);
+        for (const key of this.cache.keys()) {
+            if (key.includes(prefix)) {
+                this.cache.delete(key);
+            }
+        }
+    }
+
     // ── Private: Contents API (full repos) ──────────────────────
 
     private async fetchCategoryContents(
@@ -293,7 +335,7 @@ export class ResourceClient {
             return cached;
         }
 
-        const url = `${ResourceClient.API_URL}/repos/${repo.owner}/${repo.repo}/contents/${category}`;
+        const url = `${ResourceClient.API_URL}/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/contents/${encodeURIComponent(category)}`;
 
         try {
             const response = await this.fetchWithAuth(url);
@@ -309,6 +351,12 @@ export class ResourceClient {
 
             const files = (await response.json()) as GitHubFile[];
 
+            if (files.length >= 1000) {
+                console.warn(
+                    `Contents API for ${repo.owner}/${repo.repo}/${category} returned ${files.length} items — directory may be truncated.`,
+                );
+            }
+
             // Skills → directories only; everything else → files only
             const items = files
                 .filter((f) => {
@@ -319,9 +367,14 @@ export class ResourceClient {
                 })
                 .map((f) => this.toResourceItem(f, category, repo));
 
-            // For skills from Contents API, try to enrich with SKILL.md metadata
+            // For skills from Contents API, enrich with SKILL.md metadata in background
             if (category === ResourceCategory.Skills) {
-                await this.enrichSkillItems(items, repo);
+                // Don't await — enrichment runs post-cache so tree shows fast with folder names
+                const enrichPromise = this.enrichSkillItems(items, repo).then(() => {
+                    // Update cache with enriched data
+                    this.setCache(cacheKey, items);
+                });
+                this.pendingEnrichments.push(enrichPromise);
             }
 
             this.setCache(cacheKey, items);
@@ -352,7 +405,7 @@ export class ResourceClient {
                         `${item.file.path}/SKILL.md`,
                         repo.branch,
                     );
-                    const parsed = this.parseSkillMd(content);
+                    const parsed = parseFrontmatter(content);
                     if (parsed.name) {
                         item.name = parsed.name;
                     }
@@ -396,7 +449,8 @@ export class ResourceClient {
             skillPaths.map(async (skillPath) => {
                 try {
                     return await this.fetchSkillMetadata(repo, skillPath);
-                } catch {
+                } catch (error) {
+                    console.warn(`Failed to parse skill at ${skillPath}:`, error);
                     return null;
                 }
             }),
@@ -429,7 +483,7 @@ export class ResourceClient {
                 skillMdPath,
                 repo.branch,
             );
-            const parsed = this.parseSkillMd(content);
+            const parsed = parseFrontmatter(content);
             const skillName = skillPath.split('/').pop() || skillPath;
 
             return {
@@ -466,7 +520,7 @@ export class ResourceClient {
             return cached;
         }
 
-        const url = `${ResourceClient.API_URL}/repos/${repo.owner}/${repo.repo}/git/trees/${repo.branch}?recursive=1`;
+        const url = `${ResourceClient.API_URL}/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/git/trees/${encodeURIComponent(repo.branch)}?recursive=1`;
         const response = await this.fetchWithAuth(url);
 
         if (!response.ok) {
@@ -585,51 +639,6 @@ export class ResourceClient {
         if (remaining && parseInt(remaining) < 10) {
             console.warn(`GitHub API rate limit low: ${remaining} remaining`);
         }
-    }
-
-    // ── SKILL.md parsing ────────────────────────────────────────
-
-    private parseSkillMd(content: string): {
-        name: string;
-        description: string;
-        license?: string;
-        compatibility?: string;
-        tags?: string[];
-        body: string;
-    } {
-        const frontmatterMatch = content.match(
-            /^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/,
-        );
-
-        if (!frontmatterMatch) {
-            return { name: '', description: '', body: content };
-        }
-
-        const yaml = frontmatterMatch[1];
-        const body = frontmatterMatch[2];
-
-        const get = (key: string): string => {
-            const match = yaml.match(new RegExp(`^${key}:\\s*(.+)$`, 'm'));
-            return match ? match[1].trim() : '';
-        };
-
-        // Parse tags: support both comma-separated and YAML array formats
-        let tags: string[] | undefined;
-        const tagsRaw = get('tags');
-        if (tagsRaw) {
-            // Handle "tags: foo, bar, baz" or "tags: [foo, bar, baz]"
-            const cleaned = tagsRaw.replace(/^\[|\]$/g, '');
-            tags = cleaned.split(',').map((t) => t.trim()).filter(Boolean);
-        }
-
-        return {
-            name: get('name'),
-            description: get('description'),
-            license: get('license') || undefined,
-            compatibility: get('compatibility') || undefined,
-            tags: tags && tags.length > 0 ? tags : undefined,
-            body,
-        };
     }
 
     // ── Cache ───────────────────────────────────────────────────

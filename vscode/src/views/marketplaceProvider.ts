@@ -126,7 +126,7 @@ export class FavoritesTreeItem extends vscode.TreeItem {
 type MarketplaceItem = FavoritesTreeItem | RepoTreeItem | CategoryTreeItem | ResourceTreeItem;
 
 export class MarketplaceTreeDataProvider
-    implements vscode.TreeDataProvider<MarketplaceItem> {
+    implements vscode.TreeDataProvider<MarketplaceItem>, vscode.Disposable {
     private _onDidChangeTreeData = new vscode.EventEmitter<
         MarketplaceItem | undefined | null | void
     >();
@@ -141,7 +141,12 @@ export class MarketplaceTreeDataProvider
     private tagFilter = '';
     private installedNames = new Set<string>();
     private isLoading = false;
+    private isRefreshing = false;
     private failedRepos = new Set<string>();
+    /** Pre-computed filtered view of repoData, rebuilt when query/tag/data changes. */
+    private filteredRepoData = new Map<string, Map<ResourceCategory, ResourceItem[]>>();
+    /** Cached filtered favorite item count (rebuilt with filteredRepoData). */
+    private filteredFavoriteCount = 0;
     private static readonly FAVORITES_KEY = 'aiSkillsManager.favorites';
 
     constructor(
@@ -152,22 +157,54 @@ export class MarketplaceTreeDataProvider
     // ── Public API ──────────────────────────────────────────────
 
     async refresh(): Promise<void> {
+        if (this.isRefreshing) {
+            return;
+        }
+        this.isRefreshing = true;
         this.isLoading = true;
         this.failedRepos.clear();
         this._onDidChangeTreeData.fire();
 
         try {
             this.client.clearCache();
-            const { data, failed } = await this.client.fetchAllResources();
+            const { data, failed, enrichmentComplete } = await this.client.fetchAllResources();
             this.repoData = data;
             this.failedRepos = failed;
+            enrichmentComplete.then(() => {
+                this.rebuildFilteredData();
+                this._onDidChangeTreeData.fire();
+            });
         } catch (error) {
             console.error('Failed to refresh marketplace:', error);
             vscode.window.showErrorMessage('Failed to refresh marketplace.');
         } finally {
             this.isLoading = false;
+            this.isRefreshing = false;
+            this.rebuildFilteredData();
             this._onDidChangeTreeData.fire();
         }
+    }
+
+    /**
+     * Refresh a single repository's resources without touching other repos.
+     */
+    async refreshRepo(repo: ResourceRepository): Promise<void> {
+        const repoKey = `${repo.owner}/${repo.repo}`;
+        this.client.clearCacheForRepo(repo);
+
+        try {
+            const repoData = await this.client.fetchResourcesFromRepo(repo);
+            this.repoData.set(repoKey, repoData);
+            this.failedRepos.delete(repoKey);
+        } catch (error) {
+            console.error(`Failed to refresh repo ${repoKey}:`, error);
+            this.repoData.delete(repoKey);
+            this.failedRepos.add(repoKey);
+            vscode.window.showErrorMessage(`Failed to refresh ${repoKey}.`);
+        }
+
+        this.rebuildFilteredData();
+        this._onDidChangeTreeData.fire();
     }
 
     async loadResources(): Promise<void> {
@@ -177,13 +214,19 @@ export class MarketplaceTreeDataProvider
             this._onDidChangeTreeData.fire();
 
             try {
-                const { data, failed } = await this.client.fetchAllResources();
+                const { data, failed, enrichmentComplete } = await this.client.fetchAllResources();
                 this.repoData = data;
                 this.failedRepos = failed;
+                // Refresh tree again once background skill enrichment completes
+                enrichmentComplete.then(() => {
+                    this.rebuildFilteredData();
+                    this._onDidChangeTreeData.fire();
+                });
             } catch (error) {
                 console.error('Failed to load resources:', error);
             } finally {
                 this.isLoading = false;
+                this.rebuildFilteredData();
                 this._onDidChangeTreeData.fire();
             }
         }
@@ -191,12 +234,14 @@ export class MarketplaceTreeDataProvider
 
     setSearchQuery(query: string): void {
         this.searchQuery = query.toLowerCase();
+        this.rebuildFilteredData();
         this._onDidChangeTreeData.fire();
         this.updateSearchContext();
     }
 
     clearSearch(): void {
         this.searchQuery = '';
+        this.rebuildFilteredData();
         this._onDidChangeTreeData.fire();
         this.updateSearchContext();
     }
@@ -207,12 +252,14 @@ export class MarketplaceTreeDataProvider
 
     setTagFilter(tag: string): void {
         this.tagFilter = tag.toLowerCase();
+        this.rebuildFilteredData();
         this._onDidChangeTreeData.fire();
         this.updateTagFilterContext();
     }
 
     clearTagFilter(): void {
         this.tagFilter = '';
+        this.rebuildFilteredData();
         this._onDidChangeTreeData.fire();
         this.updateTagFilterContext();
     }
@@ -280,6 +327,7 @@ export class MarketplaceTreeDataProvider
             MarketplaceTreeDataProvider.FAVORITES_KEY,
             [...favorites],
         );
+        this.rebuildFilteredData();
         this._onDidChangeTreeData.fire();
     }
 
@@ -290,6 +338,7 @@ export class MarketplaceTreeDataProvider
             MarketplaceTreeDataProvider.FAVORITES_KEY,
             [...favorites],
         );
+        this.rebuildFilteredData();
         this._onDidChangeTreeData.fire();
     }
 
@@ -323,11 +372,9 @@ export class MarketplaceTreeDataProvider
 
             const children: MarketplaceItem[] = [];
 
-            // Show Favorites section if there are any
-            const favoriteItems = this.getFavoriteItems();
-            const filteredFavorites = this.filterItems(favoriteItems);
-            if (filteredFavorites.length > 0) {
-                children.push(new FavoritesTreeItem(filteredFavorites.length));
+            // Show Favorites section using pre-computed count (lazy — no full scan)
+            if (this.filteredFavoriteCount > 0) {
+                children.push(new FavoritesTreeItem(this.filteredFavoriteCount));
             }
 
             const config =
@@ -337,10 +384,10 @@ export class MarketplaceTreeDataProvider
 
             const repoChildren = enabledRepos
                 .filter((repo) =>
-                    this.repoData.has(`${repo.owner}/${repo.repo}`),
+                    this.filteredRepoData.has(`${repo.owner}/${repo.repo}`),
                 )
                 .map((repo) => {
-                    const data = this.repoData.get(
+                    const data = this.filteredRepoData.get(
                         `${repo.owner}/${repo.repo}`,
                     )!;
                     return new RepoTreeItem(repo, data.size);
@@ -367,7 +414,7 @@ export class MarketplaceTreeDataProvider
         }
 
         if (element instanceof FavoritesTreeItem) {
-            // Favorites children: flat list of favorited resources
+            // Favorites children: compute full list only on expansion
             const favoriteItems = this.getFavoriteItems();
             return this.filterItems(favoriteItems).map(
                 (item) =>
@@ -380,28 +427,25 @@ export class MarketplaceTreeDataProvider
         }
 
         if (element instanceof RepoTreeItem) {
-            // Second level: categories
+            // Second level: categories (from pre-computed filtered data)
             const repoKey = `${element.repo.owner}/${element.repo.repo}`;
-            const data = this.repoData.get(repoKey);
+            const data = this.filteredRepoData.get(repoKey);
             if (!data) {
                 return [];
             }
 
             const categories: CategoryTreeItem[] = [];
             for (const [category, items] of data.entries()) {
-                const filtered = this.filterItems(items);
-                if (filtered.length > 0) {
-                    categories.push(
-                        new CategoryTreeItem(category, element.repo, filtered),
-                    );
-                }
+                categories.push(
+                    new CategoryTreeItem(category, element.repo, items),
+                );
             }
             return categories;
         }
 
         if (element instanceof CategoryTreeItem) {
-            // Third level: resource items
-            return this.filterItems(element.items).map(
+            // Third level: resource items (already filtered via pre-computed data)
+            return element.items.map(
                 (item) =>
                     new ResourceTreeItem(
                         item,
@@ -414,6 +458,39 @@ export class MarketplaceTreeDataProvider
     }
 
     // ── Private helpers ─────────────────────────────────────────
+
+    /**
+     * Rebuild the pre-computed filtered view of repoData.
+     * Called when search query, tag filter, or underlying data changes.
+     */
+    private rebuildFilteredData(): void {
+        this.filteredRepoData = new Map();
+        for (const [repoKey, categoryMap] of this.repoData) {
+            const filteredCategoryMap = new Map<ResourceCategory, ResourceItem[]>();
+            for (const [category, items] of categoryMap) {
+                const filtered = this.filterItems(items);
+                if (filtered.length > 0) {
+                    filteredCategoryMap.set(category, filtered);
+                }
+            }
+            if (filteredCategoryMap.size > 0) {
+                this.filteredRepoData.set(repoKey, filteredCategoryMap);
+            }
+        }
+
+        // Pre-compute filtered favorites count
+        if (this._context?.globalState) {
+            const favoriteIds = this.getFavoriteIds();
+            if (favoriteIds.size > 0) {
+                const favoriteItems = this.getAllItems().filter((item) => favoriteIds.has(item.id));
+                this.filteredFavoriteCount = this.filterItems(favoriteItems).length;
+            } else {
+                this.filteredFavoriteCount = 0;
+            }
+        } else {
+            this.filteredFavoriteCount = 0;
+        }
+    }
 
     private filterItems(items: ResourceItem[]): ResourceItem[] {
         let filtered = items;
@@ -465,5 +542,9 @@ export class MarketplaceTreeDataProvider
         }
         item.contextValue = 'message';
         return item as unknown as MarketplaceItem;
+    }
+
+    dispose(): void {
+        this._onDidChangeTreeData.dispose();
     }
 }

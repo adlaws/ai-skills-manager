@@ -10,7 +10,7 @@
 
 * Written in TypeScript, bundled with esbuild.
 * Key architecture: Activity Bar view container with three tree views (Marketplace, Local Collections, Installed), plus detail webview panels.
-* Marketplace tree: Repo → Category → Resource items (three levels). Includes a Favorites section at the top when the user has starred resources. Supports tag-based filtering.
+* Marketplace tree: Repo → Category → Resource items (three levels). Includes a Favorites section at the top when the user has starred resources. Supports tag-based filtering. Repo nodes have a right-click context menu with "Refresh Repository" to reload a single repo without refreshing everything.
 * Local Collections tree: Collection → Category → Resource items (three levels). Configured via `aiSkillsManager.localCollections`.
 * Installed tree: Category → Installed resources (two levels). Shows update badges and modification indicators when upstream or local changes are detected.
 * Source files are under `vscode/src/`, with sub-folders `github/`, `services/`, `views/`, and `test/`.
@@ -53,12 +53,13 @@
 * Single-file resources are committed via the Contents API (PUT). Multi-file skills use the Git Data API (create blobs → tree → commit → update ref) for atomic commits.
 * Branch names are auto-generated as `ai-skills-manager/{category}/{name}/{date}` and presented in an editable input box.
 * The feature targets direct collaborators only (no fork-based workflow). Non-collaborators see a clear error message.
+* The `suggestAddition` command lets users right-click any resource (marketplace, local, or installed) and suggest adding it to a **different** target repository via a pull request. Unlike `proposeChanges` (which pushes edits back to the *source* repo), this copies a resource *to* a chosen repo. Available from all three tree context menus. The user picks a target from configured repositories, and the service creates a branch + PR. Skills-only repos (with `skillsPath`) only accept skill resources; non-skill categories are rejected with a warning. Content is fetched from GitHub for marketplace items, read from disk for local/installed items.
 
 ## JetBrains / Rider Plugin (`rider/`)
 
 * Written in Kotlin, built with Gradle and the IntelliJ Platform Plugin SDK.
 * Targets IntelliJ Platform (works in Rider, IDEA, WebStorm, and other JetBrains IDEs).
-* Mirrors the VS Code extension's feature set: Marketplace, Local Collections, Installed resources, detail panels, GitHub API integration, update detection, modification detection, scaffolding, packs, validation, config export/import, usage detection, multi-select, file watchers, diff before update, revert to repository, propose changes, and status bar widget.
+* Mirrors the VS Code extension's feature set: Marketplace, Local Collections, Installed resources, detail panels, GitHub API integration, update detection, modification detection, scaffolding, packs, validation, config export/import, usage detection, multi-select, file watchers, diff before update, revert to repository, propose changes, suggest addition, and status bar widget.
 * Source files are under `rider/src/main/kotlin/com/adlaws/aiskillsmanager/` with sub-packages `model/`, `services/`, `ui/`.
 * Key files: `model/Types.kt`, `services/ResourceClient.kt`, `services/SettingsService.kt`, `services/StateService.kt`, `services/ProjectService.kt`, `services/InstallationService.kt`, `services/ScaffoldingService.kt`, `services/PackService.kt`, `services/ValidationService.kt`, `services/ConfigService.kt`, `services/UsageDetectionService.kt`, `services/ContributionService.kt`, `ui/AiSkillsToolWindowFactory.kt`, `ui/MarketplacePanel.kt`, `ui/LocalCollectionsPanel.kt`, `ui/InstalledPanel.kt`, `ui/ResourceDetailPanel.kt`, `ui/AiSkillsConfigurable.kt`, `ui/AiSkillsStatusBarWidget.kt`.
 * Plugin descriptor is at `rider/src/main/resources/META-INF/plugin.xml`.

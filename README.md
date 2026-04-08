@@ -51,6 +51,7 @@ cd rider
 Both extensions provide the same core functionality:
 
 * **Resource Marketplace** — Browse resources from multiple GitHub repositories
+* **Per-Repository Refresh** — Right-click a repository in the Marketplace to refresh just that repo without reloading everything
 * **Local Collections** — Browse resources from local folders on disk
 * **One-Click Install** — Install to workspace or globally
 * **Global & Workspace Scopes** — Per-category configurable install locations

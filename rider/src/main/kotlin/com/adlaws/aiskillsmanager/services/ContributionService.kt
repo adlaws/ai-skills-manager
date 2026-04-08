@@ -298,6 +298,76 @@ class ContributionService(private val project: Project) {
     }
 
     /**
+     * Suggest addition of a resource to a target repository.
+     *
+     * Creates a branch and pull request with the resource file(s)
+     * in the appropriate category folder of the target repo.
+     *
+     * This is called from a background task, so it does not interact with
+     * the UI directly — callers must handle progress and dialog interactions.
+     *
+     * @return Pair(prNumber, prUrl) on success, null on failure
+     */
+    fun suggestAddition(
+        name: String,
+        category: ResourceCategory,
+        files: List<Pair<String, String>>,
+        targetRepo: ResourceRepository,
+        token: String,
+        branchName: String,
+        prTitle: String,
+        prDescription: String
+    ): Pair<Int, String>? {
+        val owner = targetRepo.owner
+        val repo = targetRepo.repo
+        val targetBranch = targetRepo.branch
+
+        val basePath = computeTargetPath(name, category, targetRepo)
+        val commitMessage = "Add ${category.id} \"$name\""
+
+        // Get HEAD SHA
+        val baseSha = getBranchHeadSha(token, owner, repo, targetBranch)
+            ?: throw RuntimeException("Could not get HEAD SHA for branch \"$targetBranch\".")
+
+        // Create branch
+        val branchCreated = createBranch(token, owner, repo, branchName, baseSha)
+        if (!branchCreated) {
+            throw RuntimeException("Could not create branch \"$branchName\". It may already exist.")
+        }
+
+        // Commit files
+        val isSkill = category == ResourceCategory.SKILLS
+        if (isSkill && files.size > 1) {
+            val ok = commitMultipleFiles(token, owner, repo, branchName, baseSha, basePath, files, commitMessage)
+            if (!ok) throw RuntimeException("Failed to commit files to branch.")
+        } else {
+            for ((relativePath, content) in files) {
+                val fullPath = if (isSkill) "$basePath/$relativePath" else basePath
+                val ok = commitSingleFile(token, owner, repo, branchName, fullPath, content, commitMessage)
+                if (!ok) throw RuntimeException("Failed to commit file: $fullPath")
+            }
+        }
+
+        // Create PR
+        val body = listOf(
+            prDescription,
+            "",
+            "---",
+            "_Suggested via [AI Skills Manager](https://plugins.jetbrains.com/plugin/ai-skills-manager)_"
+        ).joinToString("\n")
+
+        return createPullRequest(token, owner, repo, branchName, targetBranch, prTitle, body)
+    }
+
+    /**
+     * Check if a file exists at the given path in the target repo.
+     * Returns true if the file exists, false otherwise.
+     */
+    fun fileExistsInRepo(token: String, owner: String, repo: String, branch: String, filePath: String): Boolean {
+        return getFileSha(token, owner, repo, branch, filePath) != null
+    }
+
+    /**
      * Read local files for a resource.
      * Skills are multi-file (recursive), others are single file.
      */
@@ -314,6 +384,33 @@ class ContributionService(private val project: Project) {
                 emptyList()
             }
         }
+    }
+
+    /**
+     * Read file(s) from disk for any file or directory path.
+     * Used for reading local collection resources.
+     */
+    fun readFilesFromDisk(path: Path, name: String, @Suppress("unused") category: ResourceCategory): List<Pair<String, String>> {
+        if (!Files.exists(path)) return emptyList()
+        return if (Files.isDirectory(path)) {
+            readSkillFiles(path)
+        } else {
+            try {
+                listOf(name to Files.readString(path))
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
+    }
+
+    /**
+     * Compute the target path for a resource in a target repository.
+     */
+    fun computeTargetPath(name: String, category: ResourceCategory, targetRepo: ResourceRepository): String {
+        if (category == ResourceCategory.SKILLS && !targetRepo.skillsPath.isNullOrBlank()) {
+            return "${targetRepo.skillsPath}/$name"
+        }
+        return "${category.id}/$name"
     }
 
     /**

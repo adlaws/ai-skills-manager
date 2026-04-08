@@ -17,7 +17,7 @@
  */
 
 import * as vscode from 'vscode';
-import { InstalledResource, ResourceCategory, InstallMetadata } from '../types';
+import { InstalledResource, ResourceCategory, InstallMetadata, ResourceRepository } from '../types';
 import { ResourceClient } from '../github/resourceClient';
 import { PathService } from './pathService';
 
@@ -82,7 +82,17 @@ export class ContributionService {
             return;
         }
 
-        const { owner, repo, branch: sourceBranch, filePath } = sourceRepo;
+        const { owner, repo, filePath } = sourceRepo;
+
+        // Look up the current configured branch for this repo (the metadata
+        // branch may be stale if the user changed their config after install).
+        const configuredRepos = vscode.workspace
+            .getConfiguration('aiSkillsManager')
+            .get<ResourceRepository[]>('repositories', []);
+        const matchingRepo = configuredRepos.find(
+            (r) => r.owner === owner && r.repo === repo,
+        );
+        const sourceBranch = matchingRepo?.branch ?? sourceRepo.branch;
 
         // 2. Get write-scoped auth token
         const token = await this.client.getWriteAuthToken();
@@ -241,7 +251,254 @@ export class ContributionService {
         return !!(sourceRepo?.owner && sourceRepo?.repo && sourceRepo?.filePath);
     }
 
+    /**
+     * Suggest adding a resource to a target repository.
+     *
+     * Creates a branch and pull request with the resource file(s) in the
+     * appropriate category folder of the target repo.
+     *
+     * @param name Resource name
+     * @param category Resource category
+     * @param files Pre-resolved resource file(s)
+     * @param targetRepo Target repository configuration
+     */
+    async suggestAddition(
+        name: string,
+        category: ResourceCategory,
+        files: { relativePath: string; content: string }[],
+        targetRepo: ResourceRepository,
+    ): Promise<void> {
+        const { owner, repo, branch: targetBranch } = targetRepo;
+
+        // 1. Validate: skills-only repos can only accept skills
+        if (targetRepo.skillsPath && category !== ResourceCategory.Skills) {
+            vscode.window.showWarningMessage(
+                `"${owner}/${repo}" is configured as a skills-only repository and cannot accept ${category} resources.`,
+            );
+            return;
+        }
+
+        // 2. Get write-scoped auth token
+        const token = await this.client.getWriteAuthToken();
+        if (!token) {
+            vscode.window.showErrorMessage(
+                'GitHub authentication with write access is required. Please sign in when prompted.',
+            );
+            return;
+        }
+
+        // 3. Verify push access
+        const hasPushAccess = await this.checkPushAccess(token, owner, repo);
+        if (!hasPushAccess) {
+            vscode.window.showErrorMessage(
+                `You don't have write access to ${owner}/${repo} with the current GitHub account.`,
+            );
+            return;
+        }
+
+        // 4. Compute target path
+        const basePath = this.computeTargetPath(name, category, targetRepo);
+
+        // 5. Check if resource already exists in target repo
+        const existingSha = await this.getFileSha(
+            token, owner, repo, targetBranch,
+            category === ResourceCategory.Skills ? `${basePath}/SKILL.md` : basePath,
+        );
+        if (existingSha) {
+            const proceed = await vscode.window.showWarningMessage(
+                `A resource at "${basePath}" already exists in ${owner}/${repo}. The pull request will show the differences.`,
+                'Continue Anyway',
+                'Cancel',
+            );
+            if (proceed !== 'Continue Anyway') {
+                return;
+            }
+        }
+
+        // 6. Prompt for branch name
+        const sanitized = name.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+        const timestamp = new Date().toISOString().slice(0, 10);
+        const defaultBranch = `ai-skills-manager/suggest/${category}/${sanitized}/${timestamp}`;
+        const branchName = await vscode.window.showInputBox({
+            prompt: 'Branch name for your suggestion',
+            value: defaultBranch,
+            placeHolder: defaultBranch,
+            validateInput: (value) => {
+                if (!value.trim()) {
+                    return 'Branch name is required';
+                }
+                if (!/^[a-zA-Z0-9._\-/]+$/.test(value)) {
+                    return 'Branch name contains invalid characters';
+                }
+                return undefined;
+            },
+        });
+        if (!branchName) {
+            return; // Cancelled
+        }
+
+        // 7. Prompt for PR title and description
+        const defaultTitle = `Add ${category} "${name}"`;
+        const prTitle = await vscode.window.showInputBox({
+            prompt: 'Pull request title',
+            value: defaultTitle,
+            placeHolder: defaultTitle,
+        });
+        if (!prTitle) {
+            return; // Cancelled
+        }
+
+        const prDescription = await vscode.window.showInputBox({
+            prompt: 'Pull request description (optional)',
+            placeHolder: 'Describe why this resource should be added…',
+        });
+
+        // 8. Execute the push workflow with progress
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: `Suggesting "${name}" to ${owner}/${repo}…`,
+                cancellable: false,
+            },
+            async (progress) => {
+                try {
+                    progress.report({ message: 'Getting latest commit…' });
+                    const baseSha = await this.getBranchHeadSha(token, owner, repo, targetBranch);
+                    if (!baseSha) {
+                        throw new Error(`Could not get HEAD SHA for branch "${targetBranch}".`);
+                    }
+
+                    progress.report({ message: 'Creating branch…' });
+                    const branchCreated = await this.createBranch(token, owner, repo, branchName, baseSha);
+                    if (!branchCreated) {
+                        throw new Error(
+                            `Could not create branch "${branchName}". It may already exist — try a different name.`,
+                        );
+                    }
+
+                    progress.report({ message: 'Pushing files…' });
+                    const isSkill = category === ResourceCategory.Skills;
+                    const commitMessage = `Add ${category} "${name}"`;
+
+                    if (isSkill && files.length > 1) {
+                        await this.commitMultipleFiles(
+                            token, owner, repo, branchName, baseSha,
+                            basePath, files, commitMessage,
+                        );
+                    } else {
+                        for (const file of files) {
+                            const fullPath = isSkill
+                                ? `${basePath}/${file.relativePath}`
+                                : basePath;
+                            await this.commitSingleFile(
+                                token, owner, repo, branchName,
+                                fullPath, file.content, commitMessage,
+                            );
+                        }
+                    }
+
+                    progress.report({ message: 'Creating pull request…' });
+                    const body = [
+                        prDescription || '',
+                        '',
+                        '---',
+                        `_Suggested via [AI Skills Manager](https://marketplace.visualstudio.com/items?itemName=adlaws.ai-skills-manager)_`,
+                    ].join('\n');
+
+                    const pr = await this.createPullRequest(
+                        token, owner, repo,
+                        branchName, targetBranch,
+                        prTitle, body,
+                    );
+
+                    if (pr) {
+                        const action = await vscode.window.showInformationMessage(
+                            `Pull request #${pr.number} created on ${owner}/${repo}!`,
+                            'Open in Browser',
+                        );
+                        if (action === 'Open in Browser') {
+                            vscode.env.openExternal(vscode.Uri.parse(pr.html_url));
+                        }
+                    }
+                } catch (error) {
+                    const msg = error instanceof Error ? error.message : String(error);
+                    vscode.window.showErrorMessage(`Failed to suggest addition: ${msg}`);
+                }
+            },
+        );
+    }
+
+    /**
+     * Read the local file(s) for an installed resource.
+     * Returns an array of { relativePath, content } entries.
+     */
+    async readLocalFiles(
+        resource: InstalledResource,
+    ): Promise<{ relativePath: string; content: string }[]> {
+        const wf = this.pathService.getWorkspaceFolderForLocation(resource.location);
+        const baseUri = this.pathService.resolveLocationToUri(resource.location, wf);
+        if (!baseUri) {
+            return [];
+        }
+
+        const isSkill = resource.category === ResourceCategory.Skills;
+
+        if (isSkill) {
+            return this.readSkillFiles(baseUri);
+        } else {
+            // Single file resource
+            try {
+                const content = new TextDecoder().decode(
+                    await vscode.workspace.fs.readFile(baseUri),
+                );
+                return [{ relativePath: resource.name, content }];
+            } catch {
+                return [];
+            }
+        }
+    }
+
+    /**
+     * Read file(s) from a local collection or disk path.
+     * For skills (directories), recursively reads all files.
+     * For single files, reads the file content.
+     */
+    async readFilesFromDisk(
+        uri: vscode.Uri,
+        name: string,
+        category: ResourceCategory,
+    ): Promise<{ relativePath: string; content: string }[]> {
+        const isSkill = category === ResourceCategory.Skills;
+
+        if (isSkill) {
+            return this.readSkillFiles(uri);
+        } else {
+            try {
+                const content = new TextDecoder().decode(
+                    await vscode.workspace.fs.readFile(uri),
+                );
+                return [{ relativePath: name, content }];
+            } catch {
+                return [];
+            }
+        }
+    }
+
     // ── Private: GitHub API operations ──────────────────────────
+
+    /**
+     * Compute the target path for a resource in the target repository.
+     */
+    private computeTargetPath(
+        name: string,
+        category: ResourceCategory,
+        targetRepo: ResourceRepository,
+    ): string {
+        if (category === ResourceCategory.Skills && targetRepo.skillsPath) {
+            return `${targetRepo.skillsPath}/${name}`;
+        }
+        return `${category}/${name}`;
+    }
 
     /**
      * Check if the authenticated user has push access to the repo.
@@ -543,36 +800,6 @@ export class ContributionService {
     }
 
     // ── Private: Local file reading ─────────────────────────────
-
-    /**
-     * Read the local file(s) for an installed resource.
-     * Returns an array of { relativePath, content } entries.
-     */
-    private async readLocalFiles(
-        resource: InstalledResource,
-    ): Promise<{ relativePath: string; content: string }[]> {
-        const wf = this.pathService.getWorkspaceFolderForLocation(resource.location);
-        const baseUri = this.pathService.resolveLocationToUri(resource.location, wf);
-        if (!baseUri) {
-            return [];
-        }
-
-        const isSkill = resource.category === ResourceCategory.Skills;
-
-        if (isSkill) {
-            return this.readSkillFiles(baseUri);
-        } else {
-            // Single file resource
-            try {
-                const content = new TextDecoder().decode(
-                    await vscode.workspace.fs.readFile(baseUri),
-                );
-                return [{ relativePath: resource.name, content }];
-            } catch {
-                return [];
-            }
-        }
-    }
 
     /**
      * Recursively read all files in a skill directory.

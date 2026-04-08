@@ -7,6 +7,7 @@ A one-stop-shop for **Chat Modes**, **Instructions**, **Prompts**, **Agents**, a
 ## Features
 
 * **Resource Marketplace** — Browse Chat Modes, Instructions, Prompts, Agents, and Skills from multiple GitHub repositories
+* **Per-Repository Refresh** — Right-click a repository node in the Marketplace tree to refresh just that repo's resources, or use the header refresh button to reload everything
 * **Local Collections** — Browse and manage resources from local folders on disk, with the same category structure as the Marketplace
 * **Search** — Quickly find resources by name or keyword in both Marketplace and Local Collections
 * **One-Click Install** — Download single files or install skill folders directly into your workspace or globally to your home directory
@@ -32,6 +33,7 @@ A one-stop-shop for **Chat Modes**, **Instructions**, **Prompts**, **Agents**, a
 * **Resource Usage Detection** — Scan workspace files to discover which installed resources are actually referenced in configuration files like `copilot-instructions.md`, `settings.json`, `mcp.json`, `AGENTS.md`, and more
 * **Multi-Select** — Select multiple resources using Shift+Click (range) or Ctrl+Click (toggle) and perform bulk actions: install, uninstall, move, update, favorite, create packs, delete, and more
 * **Propose Changes** — Push local modifications back to the source GitHub repository as a pull request, directly from the extension
+* **Suggest Addition** — Right-click any resource (marketplace, local, or installed) and suggest adding it to a different GitHub repository via a pull request
 * **Revert to Repository Version** — Restore a modified resource to its original installed state by fetching the upstream content
 * **Modification Detection** — Automatically detects when installed resources have been locally modified, showing a "Modified" indicator in the tree and enabling revert/propose actions
 
@@ -89,6 +91,7 @@ Click any resource in the Marketplace, Local Collections, or Installed tree to p
    * **Move to Global** / **Move to Workspace** — relocate between scopes (shown based on current scope)
    * **Copy to Local Collection** — copy the resource into a configured local collection folder
    * **Propose Changes…** — push your local modifications back to the source repository as a pull request (only shown when locally modified)
+   * **Suggest Addition…** — suggest adding this resource to a different GitHub repository via a pull request
    * **Revert to Repository Version…** — restore the resource to its original installed state from the upstream repository (only shown when locally modified)
 5. Resources that have been locally modified show a **"Modified"** indicator in the tree description
 
@@ -378,6 +381,25 @@ If you've modified an installed resource and want to undo your changes, you can 
 1. **Right-click** an installed resource that shows a **"Modified"** indicator and choose **Revert to Repository Version…**, or click the **Revert to Repository Version…** button in the resource detail panel
 2. Confirm that you want to overwrite your local changes
 3. The extension fetches the original content from the upstream repository and replaces your local copy
+
+### Suggest Addition
+
+You can suggest adding any resource — from the Marketplace, a Local Collection, or Installed — to a different GitHub repository you have write access to:
+
+1. **Right-click** any resource in the Marketplace, Local Collections, or Installed tree and choose **Suggest Addition…**
+2. Select a **target repository** from your configured repositories
+3. The extension authenticates with GitHub (requesting `repo` scope for write access)
+4. It verifies you have push access to the target repository
+5. Enter a **branch name** (auto-generated as `ai-skills-manager/suggest/<category>/<name>/<date>`, editable)
+6. Enter a **PR title** and optional **description**
+7. The extension creates the branch, commits the resource file(s), and opens a pull request on the target repo
+8. A notification shows the PR number with an **Open in Browser** link
+
+**Notes:**
+* Resource content is fetched from GitHub for Marketplace items, or read from disk for Local Collection and Installed items
+* If the resource already exists in the target repository, a warning is shown — you can still proceed (the PR will show the differences)
+* Repositories configured with a `skillsPath` (skills-only repos) will only accept skill resources; suggesting other categories to these repos shows a warning
+* Unlike **Propose Changes** (which pushes edits back to a resource's *source* repo), **Suggest Addition** copies a resource *to a different repo entirely*
 4. The modification indicator is removed and the content hash is updated
 
 > **Note:** Only resources installed from a marketplace repository (with `sourceRepo` metadata) that have been locally modified will show the revert option.
@@ -509,6 +531,7 @@ Available via Command Palette (`Ctrl+Shift+P`):
 | AI Skills Manager: Search Resources | Open search dialog |
 | AI Skills Manager: Clear Search | Clear search and show all resources |
 | AI Skills Manager: Refresh | Refresh marketplace, local collections, and installed data |
+| AI Skills Manager: Refresh Repository | Refresh a single repository's resources in the Marketplace |
 | AI Skills Manager: Install to Workspace | Install selected resource to the workspace |
 | AI Skills Manager: Install Globally | Install selected resource to global (home directory) location |
 | AI Skills Manager: Remove | Remove selected installed resource |
@@ -539,6 +562,7 @@ Available via Command Palette (`Ctrl+Shift+P`):
 | AI Skills Manager: Clear Tag Filter | Remove the active tag filter |
 | AI Skills Manager: Detect Resource Usage | Scan workspace files for references to installed resources |
 | AI Skills Manager: Propose Changes… | Push local modifications to the source repository as a pull request |
+| AI Skills Manager: Suggest Addition… | Suggest adding a resource to a different GitHub repository via a pull request |
 | AI Skills Manager: Revert to Repository Version… | Restore a modified resource to its original upstream content |
 
 ## Skill Directory Structure

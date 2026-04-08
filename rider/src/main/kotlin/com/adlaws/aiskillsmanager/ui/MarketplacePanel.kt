@@ -166,6 +166,42 @@ class MarketplacePanel(private val project: Project) {
         })
     }
 
+    fun refreshRepo(repoKey: String) {
+        val settings = SettingsService.getInstance()
+        val repo = settings.getRepositories().find { it.key == repoKey } ?: return
+
+        ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Refreshing $repoKey…", true) {
+            override fun run(indicator: ProgressIndicator) {
+                indicator.isIndeterminate = true
+                try {
+                    resourceClient.clearCacheForRepo(repoKey)
+                    val repoData = resourceClient.fetchResources(repo)
+                    val mutableData = allData.toMutableMap()
+                    val mutableFailed = failedRepos.toMutableSet()
+                    if (repoData.isNotEmpty()) {
+                        mutableData[repoKey] = repoData
+                    } else {
+                        mutableData.remove(repoKey)
+                    }
+                    mutableFailed.remove(repoKey)
+                    allData = mutableData
+                    failedRepos = mutableFailed
+                } catch (e: Exception) {
+                    LOG.warn("Failed to refresh repo $repoKey", e)
+                    val mutableData = allData.toMutableMap()
+                    val mutableFailed = failedRepos.toMutableSet()
+                    mutableData.remove(repoKey)
+                    mutableFailed.add(repoKey)
+                    allData = mutableData
+                    failedRepos = mutableFailed
+                }
+                ApplicationManager.getApplication().invokeLater {
+                    rebuildTree()
+                }
+            }
+        })
+    }
+
     private fun showLoadingCard() {
         (treeCard.layout as CardLayout).show(treeCard, CARD_LOADING)
         startSpinner()
@@ -305,6 +341,18 @@ class MarketplacePanel(private val project: Project) {
             tree.selectionPath = path
         }
 
+        // Check if clicked on a repo node
+        val clickedNode = path.lastPathComponent as? DefaultMutableTreeNode
+        val repoNodeData = clickedNode?.userObject as? RepoNodeData
+        if (repoNodeData != null) {
+            val menu = JPopupMenu()
+            menu.add(JMenuItem("Refresh Repository").apply {
+                addActionListener { refreshRepo(repoNodeData.key) }
+            })
+            menu.show(tree, e.x, e.y)
+            return
+        }
+
         val selectedItems = getSelectedResourceItems()
         if (selectedItems.isEmpty()) return
 
@@ -347,6 +395,13 @@ class MarketplacePanel(private val project: Project) {
             })
         }
 
+        menu.addSeparator()
+        menu.add(JMenuItem("Suggest Addition\u2026").apply {
+            addActionListener {
+                suggestAddition(if (selectedItems.size == 1) selectedItems.first() else selectedItems.first())
+            }
+        })
+
         menu.show(tree, e.x, e.y)
     }
 
@@ -381,6 +436,178 @@ class MarketplacePanel(private val project: Project) {
 
     private fun buildFavoriteId(item: ResourceItem): String =
         "${item.repoOwner}/${item.repoName}:${item.category.id}:${item.name}"
+
+    private fun suggestAddition(item: ResourceItem) {
+        val settings = SettingsService.getInstance()
+        val repos = settings.getRepositories().filter { it.enabled }
+        if (repos.isEmpty()) {
+            com.intellij.openapi.ui.Messages.showInfoMessage(
+                project, "No repositories configured. Add repositories in AI Skills Manager settings.", "No Repositories"
+            )
+            return
+        }
+
+        // Validate: skills-only repos can only accept skills
+        val validRepos = repos.filter { repo ->
+            repo.skillsPath.isNullOrBlank() || item.category == ResourceCategory.SKILLS
+        }
+        if (validRepos.isEmpty()) {
+            com.intellij.openapi.ui.Messages.showWarningDialog(
+                project,
+                "All configured repositories are skills-only and cannot accept ${item.category.label} resources.",
+                "No Valid Target"
+            )
+            return
+        }
+
+        val repoLabels = validRepos.map { it.label ?: "${it.owner}/${it.repo}" }.toTypedArray()
+        val selection = com.intellij.openapi.ui.Messages.showChooseDialog(
+            project, "Select target repository for \"${item.name}\":",
+            "Suggest Addition", null, repoLabels, repoLabels.first()
+        )
+        if (selection < 0) return
+        val targetRepo = validRepos[selection]
+
+        val contributionService = ContributionService.getInstance(project)
+        val token = contributionService.getWriteToken()
+        if (token == null) {
+            com.intellij.openapi.ui.Messages.showErrorDialog(
+                project, "A GitHub token with 'repo' scope is required. Configure it in Settings.", "Authentication Required"
+            )
+            return
+        }
+
+        val sanitized = item.name.lowercase().replace(Regex("[^a-z0-9-]"), "-").replace(Regex("-+"), "-").trim('-')
+        val date = java.time.LocalDate.now().toString()
+        val defaultBranch = "ai-skills-manager/suggest/${item.category.id}/$sanitized/$date"
+        val branchName = com.intellij.openapi.ui.Messages.showInputDialog(
+            project, "Branch name for your suggestion:", "Branch Name", null, defaultBranch, null
+        )
+        if (branchName.isNullOrBlank()) return
+
+        val defaultTitle = "Add ${item.category.id} \"${item.name}\""
+        val prTitle = com.intellij.openapi.ui.Messages.showInputDialog(
+            project, "Pull request title:", "PR Title", null, defaultTitle, null
+        )
+        if (prTitle.isNullOrBlank()) return
+
+        val prDescription = com.intellij.openapi.ui.Messages.showInputDialog(
+            project, "Pull request description (optional):", "PR Description", null, "", null
+        ) ?: ""
+
+        ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Suggesting \"${item.name}\"…", false) {
+            override fun run(indicator: ProgressIndicator) {
+                try {
+                    // Check push access
+                    indicator.text = "Checking repository access…"
+                    if (!contributionService.checkPushAccess(token, targetRepo.owner, targetRepo.repo)) {
+                        ApplicationManager.getApplication().invokeLater {
+                            com.intellij.openapi.ui.Messages.showErrorDialog(
+                                project,
+                                "You don't have write access to ${targetRepo.owner}/${targetRepo.repo}.",
+                                "Access Denied"
+                            )
+                        }
+                        return
+                    }
+
+                    // Fetch content from GitHub (marketplace items)
+                    indicator.text = "Fetching resource content…"
+                    val files: List<Pair<String, String>> = if (item.category == ResourceCategory.SKILLS) {
+                        val repo = ResourceRepository(owner = item.repoOwner, repo = item.repoName, branch = item.repoBranch)
+                        resourceClient.fetchSkillFiles(repo, item.path)
+                    } else {
+                        val content = resourceClient.fetchRawContent(item.repoOwner, item.repoName, item.repoBranch, item.path)
+                        if (content != null) listOf(item.name to content) else emptyList()
+                    }
+
+                    if (files.isEmpty()) {
+                        ApplicationManager.getApplication().invokeLater {
+                            com.intellij.openapi.ui.Messages.showErrorDialog(project, "Could not fetch resource content.", "Error")
+                        }
+                        return
+                    }
+
+                    // Check if already exists
+                    indicator.text = "Checking for existing resource…"
+                    val basePath = contributionService.computeTargetPath(item.name, item.category, targetRepo)
+                    val checkPath = if (item.category == ResourceCategory.SKILLS) "$basePath/SKILL.md" else basePath
+                    if (contributionService.fileExistsInRepo(token, targetRepo.owner, targetRepo.repo, targetRepo.branch, checkPath)) {
+                        ApplicationManager.getApplication().invokeLater {
+                            val proceed = com.intellij.openapi.ui.Messages.showYesNoDialog(
+                                project,
+                                "A resource at \"$basePath\" already exists in ${targetRepo.owner}/${targetRepo.repo}. Continue anyway?",
+                                "Resource Exists",
+                                com.intellij.openapi.ui.Messages.getWarningIcon()
+                            )
+                            if (proceed == com.intellij.openapi.ui.Messages.YES) {
+                                doSuggestInBackground(contributionService, item.name, item.category, files, targetRepo, token, branchName, prTitle, prDescription)
+                            }
+                        }
+                        return
+                    }
+
+                    // Proceed with suggestion
+                    indicator.text = "Creating pull request…"
+                    val result = contributionService.suggestAddition(item.name, item.category, files, targetRepo, token, branchName, prTitle, prDescription)
+                    ApplicationManager.getApplication().invokeLater {
+                        if (result != null) {
+                            val (prNumber, prUrl) = result
+                            val open = com.intellij.openapi.ui.Messages.showYesNoDialog(
+                                project,
+                                "Pull request #$prNumber created on ${targetRepo.owner}/${targetRepo.repo}!\n\nOpen in browser?",
+                                "Success",
+                                com.intellij.openapi.ui.Messages.getInformationIcon()
+                            )
+                            if (open == com.intellij.openapi.ui.Messages.YES) {
+                                java.awt.Desktop.getDesktop().browse(java.net.URI(prUrl))
+                            }
+                        } else {
+                            com.intellij.openapi.ui.Messages.showErrorDialog(project, "Failed to create pull request.", "Error")
+                        }
+                    }
+                } catch (e: Exception) {
+                    ApplicationManager.getApplication().invokeLater {
+                        com.intellij.openapi.ui.Messages.showErrorDialog(project, "Failed to suggest addition: ${e.message}", "Error")
+                    }
+                }
+            }
+        })
+    }
+
+    private fun doSuggestInBackground(
+        contributionService: ContributionService, name: String, category: ResourceCategory,
+        files: List<Pair<String, String>>, targetRepo: ResourceRepository,
+        token: String, branchName: String, prTitle: String, prDescription: String
+    ) {
+        ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Creating pull request…", false) {
+            override fun run(indicator: ProgressIndicator) {
+                try {
+                    val result = contributionService.suggestAddition(name, category, files, targetRepo, token, branchName, prTitle, prDescription)
+                    ApplicationManager.getApplication().invokeLater {
+                        if (result != null) {
+                            val (prNumber, prUrl) = result
+                            val open = com.intellij.openapi.ui.Messages.showYesNoDialog(
+                                project,
+                                "Pull request #$prNumber created on ${targetRepo.owner}/${targetRepo.repo}!\n\nOpen in browser?",
+                                "Success",
+                                com.intellij.openapi.ui.Messages.getInformationIcon()
+                            )
+                            if (open == com.intellij.openapi.ui.Messages.YES) {
+                                java.awt.Desktop.getDesktop().browse(java.net.URI(prUrl))
+                            }
+                        } else {
+                            com.intellij.openapi.ui.Messages.showErrorDialog(project, "Failed to create pull request.", "Error")
+                        }
+                    }
+                } catch (e: Exception) {
+                    ApplicationManager.getApplication().invokeLater {
+                        com.intellij.openapi.ui.Messages.showErrorDialog(project, "Failed: ${e.message}", "Error")
+                    }
+                }
+            }
+        })
+    }
 
     // ---- Node data classes ----
 

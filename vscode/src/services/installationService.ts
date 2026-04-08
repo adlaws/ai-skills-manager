@@ -14,11 +14,77 @@ import { ResourceClient } from '../github/resourceClient';
 import { PathService } from './pathService';
 
 export class InstallationService {
+    private _lastContentHash: string | undefined;
+    private _metadataBatch: Map<string, { uri: vscode.Uri; entries: Record<string, InstallMetadata[string]> }> | null = null;
+
     constructor(
         private readonly client: ResourceClient,
         private readonly _context: vscode.ExtensionContext,
         private readonly pathService: PathService,
     ) { }
+
+    // ── Hash from in-memory content ─────────────────────────────
+
+    /**
+     * Compute SHA-256 hash from an in-memory string (single-file resources).
+     */
+    static computeHashFromString(content: string): string {
+        return crypto.createHash('sha256').update(content).digest('hex');
+    }
+
+    /**
+     * Compute SHA-256 hash from an in-memory file list (skill directories).
+     * Uses the same sort-by-relative-path algorithm as computeDirectoryHash.
+     */
+    static computeHashFromFiles(files: { path: string; content: string }[]): string {
+        const sorted = [...files].sort((a, b) => a.path.localeCompare(b.path));
+        const hash = crypto.createHash('sha256');
+        for (const file of sorted) {
+            hash.update(file.path);
+            hash.update(file.content);
+        }
+        return hash.digest('hex');
+    }
+
+    // ── Metadata batch mode ─────────────────────────────────────
+
+    /**
+     * Begin batching metadata writes. While batching, `saveInstallMetadata`
+     * writes to an in-memory queue instead of disk. Call `flushMetadataBatch`
+     * to write all queued entries grouped by category file.
+     */
+    beginMetadataBatch(): void {
+        this._metadataBatch = new Map();
+    }
+
+    /**
+     * Flush all queued metadata writes. Groups entries by target file
+     * and does one read-modify-write per file.
+     */
+    async flushMetadataBatch(): Promise<void> {
+        if (!this._metadataBatch) { return; }
+        const batch = this._metadataBatch;
+        this._metadataBatch = null;
+
+        for (const [, { uri, entries }] of batch) {
+            try {
+                let metadata: InstallMetadata = {};
+                try {
+                    const raw = new TextDecoder().decode(
+                        await vscode.workspace.fs.readFile(uri),
+                    );
+                    metadata = JSON.parse(raw);
+                } catch { /* file doesn't exist yet */ }
+                Object.assign(metadata, entries);
+                await vscode.workspace.fs.writeFile(
+                    uri,
+                    new TextEncoder().encode(JSON.stringify(metadata, null, 2)),
+                );
+            } catch {
+                // Non-critical — silently ignore metadata errors
+            }
+        }
+    }
 
     // ── Public API ──────────────────────────────────────────────
 
@@ -26,6 +92,7 @@ export class InstallationService {
      * Install a marketplace resource to the configured location.
      */
     async installResource(item: ResourceItem, scope: InstallScope = 'local'): Promise<boolean> {
+        this._lastContentHash = undefined;
         let result: boolean;
         if (
             item.category === ResourceCategory.Skills &&
@@ -38,7 +105,7 @@ export class InstallationService {
 
         // Persist install metadata (SHA + source repo) for update detection
         if (result && item.file.sha && item.repo?.owner && item.repo?.repo) {
-            await this.saveInstallMetadata(item, scope);
+            await this.saveInstallMetadata(item, scope, this._lastContentHash);
         }
 
         return result;
@@ -515,6 +582,9 @@ export class InstallationService {
                         });
                     }
 
+                    // Compute content hash from in-memory data (no re-read from disk)
+                    this._lastContentHash = InstallationService.computeHashFromFiles(files);
+
                     return true;
                 } catch (error) {
                     const msg =
@@ -630,6 +700,9 @@ export class InstallationService {
                         targetFile,
                         new TextEncoder().encode(content),
                     );
+
+                    // Compute content hash from in-memory data (no re-read from disk)
+                    this._lastContentHash = InstallationService.computeHashFromString(content);
 
                     return true;
                 } catch (error) {
@@ -842,7 +915,7 @@ export class InstallationService {
      * Metadata is stored in a `.ai-skills-meta.json` file in the category
      * install directory (the parent of the resource file/folder).
      */
-    async saveInstallMetadata(item: ResourceItem, scope: InstallScope): Promise<void> {
+    async saveInstallMetadata(item: ResourceItem, scope: InstallScope, precomputedHash?: string): Promise<void> {
         try {
             const installLocation = this.pathService.getInstallLocationForScope(item.category, scope);
             const wf = this.pathService.getWorkspaceFolderForLocation(installLocation);
@@ -851,24 +924,14 @@ export class InstallationService {
                 return;
             }
 
-            // Compute content hash of what we just installed
-            const resourceLocation = `${installLocation}/${item.name}`;
-            const contentHash = await this.computeContentHash(resourceLocation, item.category);
+            // Use precomputed hash when available (computed from in-memory content at install time)
+            // Fall back to reading from disk only if no precomputed hash is provided
+            const contentHash = precomputedHash
+                ?? await this.computeContentHash(`${installLocation}/${item.name}`, item.category);
 
             const metaUri = vscode.Uri.joinPath(baseDir, InstallationService.META_FILENAME);
-            let metadata: InstallMetadata = {};
 
-            // Read existing metadata
-            try {
-                const existing = new TextDecoder().decode(
-                    await vscode.workspace.fs.readFile(metaUri),
-                );
-                metadata = JSON.parse(existing);
-            } catch {
-                // File doesn't exist yet
-            }
-
-            metadata[item.name] = {
+            const entry: InstallMetadata[string] = {
                 sha: item.file.sha || '',
                 installedAt: new Date().toISOString(),
                 sourceRepo: item.repo?.owner && item.repo?.repo
@@ -881,6 +944,30 @@ export class InstallationService {
                     : undefined,
                 contentHash,
             };
+
+            // In batch mode, queue the write instead of writing immediately
+            if (this._metadataBatch) {
+                const key = installLocation;
+                if (!this._metadataBatch.has(key)) {
+                    this._metadataBatch.set(key, { uri: metaUri, entries: {} });
+                }
+                this._metadataBatch.get(key)!.entries[item.name] = entry;
+                return;
+            }
+
+            let metadata: InstallMetadata = {};
+
+            // Read existing metadata
+            try {
+                const existing = new TextDecoder().decode(
+                    await vscode.workspace.fs.readFile(metaUri),
+                );
+                metadata = JSON.parse(existing);
+            } catch {
+                // File doesn't exist yet
+            }
+
+            metadata[item.name] = entry;
 
             await vscode.workspace.fs.writeFile(
                 metaUri,

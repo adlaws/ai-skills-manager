@@ -5,6 +5,7 @@ import com.adlaws.aiskillsmanager.services.ContributionService
 import com.adlaws.aiskillsmanager.services.InstallationService
 import com.adlaws.aiskillsmanager.services.ProjectService
 import com.adlaws.aiskillsmanager.services.ResourceClient
+import com.adlaws.aiskillsmanager.services.SettingsService
 import com.intellij.diff.DiffContentFactory
 import com.intellij.diff.DiffManager
 import com.intellij.diff.requests.SimpleDiffRequest
@@ -334,7 +335,10 @@ class ResourceDetailPanel(private val project: Project) : JPanel(BorderLayout())
         ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Proposing changes…", false) {
             override fun run(indicator: ProgressIndicator) {
                 try {
-                    val sourceBranch = "main"
+                    // Look up the current configured branch (metadata may be stale)
+                    val configuredRepo = SettingsService.getInstance().getRepositories()
+                        .find { it.owner == owner && it.repo == repo }
+                    val sourceBranch = configuredRepo?.branch ?: "main"
                     val baseSha = contributionService.getBranchHeadSha(token, owner, repo, sourceBranch)
                         ?: throw RuntimeException("Could not get HEAD SHA")
                     if (!contributionService.createBranch(token, owner, repo, branchName, baseSha))

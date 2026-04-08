@@ -15,6 +15,7 @@ import {
     InstallMetadata,
 } from '../types';
 import { PathService } from '../services/pathService';
+import { parseFrontmatter } from '../services/frontmatterService';
 
 // ── Tree items ──────────────────────────────────────────────────
 
@@ -286,13 +287,13 @@ export class InstalledTreeDataProvider
                             );
                             try {
                                 const content = await fs.readFile(skillMd);
-                                const metadata = this.parseMetadata(
+                                const parsed = parseFrontmatter(
                                     new TextDecoder().decode(content),
                                 );
                                 installed.push({
-                                    name: metadata.name || name,
+                                    name: parsed.name || name,
                                     description:
-                                        metadata.description ||
+                                        parsed.description ||
                                         'No description',
                                     category,
                                     location: `${location}/${name}`,
@@ -338,24 +339,5 @@ export class InstalledTreeDataProvider
         } catch {
             return false;
         }
-    }
-
-    private parseMetadata(content: string): {
-        name?: string;
-        description?: string;
-    } {
-        const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-        if (!match) {
-            return {};
-        }
-
-        const yaml = match[1];
-        const nameMatch = yaml.match(/^name:\s*(.+)$/m);
-        const descMatch = yaml.match(/^description:\s*(.+)$/m);
-
-        return {
-            name: nameMatch?.[1].trim(),
-            description: descMatch?.[1].trim(),
-        };
     }
 }

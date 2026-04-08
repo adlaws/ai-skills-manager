@@ -6,6 +6,7 @@ import {
     ResourceRepository,
     ALL_CATEGORIES,
 } from '../types';
+import { parseFrontmatter } from '../services/frontmatterService';
 
 // ── Helpers ─────────────────────────────────────────────────────
 
@@ -26,20 +27,6 @@ function makeRepo(overrides?: Partial<ResourceRepository>): ResourceRepository {
  * Subclass that exposes private helpers for testing.
  */
 class TestableResourceClient extends ResourceClient {
-    /** Expose the SKILL.md parser for unit testing. */
-    testParseSkillMd(
-        content: string,
-    ): {
-        name: string;
-        description: string;
-        license?: string;
-        compatibility?: string;
-        body: string;
-    } {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return (this as any).parseSkillMd(content);
-    }
-
     /** Expose the cache setter for testing. */
     testSetCache<T>(key: string, data: T): void {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -85,7 +72,9 @@ suite('ResourceClient', () => {
 
     // ── parseSkillMd ────────────────────────────────────────────
 
-    suite('parseSkillMd', () => {
+    // ── parseFrontmatter (shared utility) ─────────────────────
+
+    suite('parseFrontmatter', () => {
         test('parses valid SKILL.md with all fields', () => {
             const content = [
                 '---',
@@ -100,7 +89,7 @@ suite('ResourceClient', () => {
                 'Some instructions here.',
             ].join('\n');
 
-            const parsed = client.testParseSkillMd(content);
+            const parsed = parseFrontmatter(content);
 
             assert.strictEqual(parsed.name, 'My Skill');
             assert.strictEqual(parsed.description, 'A test skill');
@@ -112,7 +101,7 @@ suite('ResourceClient', () => {
 
         test('returns empty name/description when no frontmatter', () => {
             const content = '# Just a heading\n\nSome content.';
-            const parsed = client.testParseSkillMd(content);
+            const parsed = parseFrontmatter(content);
 
             assert.strictEqual(parsed.name, '');
             assert.strictEqual(parsed.description, '');
@@ -129,7 +118,7 @@ suite('ResourceClient', () => {
                 'Body here.',
             ].join('\n');
 
-            const parsed = client.testParseSkillMd(content);
+            const parsed = parseFrontmatter(content);
 
             assert.strictEqual(parsed.name, 'Minimal Skill');
             assert.strictEqual(parsed.description, 'Bare bones');
@@ -139,7 +128,7 @@ suite('ResourceClient', () => {
 
         test('handles empty frontmatter block', () => {
             const content = '---\n\n---\n\nBody only.';
-            const parsed = client.testParseSkillMd(content);
+            const parsed = parseFrontmatter(content);
 
             assert.strictEqual(parsed.name, '');
             assert.strictEqual(parsed.description, '');
@@ -149,7 +138,7 @@ suite('ResourceClient', () => {
         test('handles Windows-style line endings', () => {
             const content =
                 '---\r\nname: WinSkill\r\ndescription: Windows test\r\n---\r\n\r\nBody.';
-            const parsed = client.testParseSkillMd(content);
+            const parsed = parseFrontmatter(content);
 
             assert.strictEqual(parsed.name, 'WinSkill');
             assert.strictEqual(parsed.description, 'Windows test');

@@ -77,6 +77,9 @@ export class PackService {
         const allMarketplace = this.getMarketplaceItems();
         const allLocal = this.getLocalItems();
 
+        // Batch metadata writes for all resources in the pack
+        this.installationService.beginMetadataBatch();
+
         await vscode.window.withProgress(
             {
                 location: vscode.ProgressLocation.Notification,
@@ -130,6 +133,9 @@ export class PackService {
                 }
             },
         );
+
+        // Flush all queued metadata writes (one per category file)
+        await this.installationService.flushMetadataBatch();
 
         // 5. Report results
         const parts: string[] = [];

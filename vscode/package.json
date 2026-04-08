@@ -2,7 +2,7 @@
     "name": "ai-skills-manager",
     "displayName": "AI Skills Manager",
     "description": "One-stop-shop for discovering, installing, and managing AI development resources \u2013 Chat Modes, Instructions, Prompts, Agents, and Skills \u2013 from GitHub repositories with customizable install locations",
-    "version": "0.1.5",
+    "version": "0.1.6",
     "icon": "resources/logo.png",
     "publisher": "adlaws",
     "engines": {
@@ -27,11 +27,7 @@
         "type": "git",
         "url": "https://github.com/adlaws/ai-skills-manager.git"
     },
-    "activationEvents": [
-        "onView:aiSkillsManager.marketplace",
-        "onView:aiSkillsManager.local",
-        "onView:aiSkillsManager.installed"
-    ],
+    "activationEvents": [],
     "main": "./dist/extension.js",
     "contributes": {
         "viewsContainers": {
@@ -85,6 +81,12 @@
             {
                 "command": "aiSkillsManager.refresh",
                 "title": "Refresh",
+                "icon": "$(refresh)",
+                "category": "AI Skills Manager"
+            },
+            {
+                "command": "aiSkillsManager.refreshRepo",
+                "title": "Refresh Repository",
                 "icon": "$(refresh)",
                 "category": "AI Skills Manager"
             },
@@ -296,6 +298,17 @@
                 "title": "Revert to Repository Version\u2026",
                 "icon": "$(discard)",
                 "category": "AI Skills Manager"
+            },
+            {
+                "command": "aiSkillsManager.suggestAddition",
+                "title": "Suggest Addition\u2026",
+                "icon": "$(repo-push)",
+                "category": "AI Skills Manager"
+            },
+            {
+                "command": "aiSkillsManager.statusBarAction",
+                "title": "Quick Actions",
+                "category": "AI Skills Manager"
             }
         ],
         "menus": {
@@ -403,6 +416,21 @@
                     "group": "1_details@1"
                 },
                 {
+                    "command": "aiSkillsManager.suggestAddition",
+                    "when": "view == aiSkillsManager.marketplace && (viewItem == resource || viewItem == favoriteResource)",
+                    "group": "3_contribute@1"
+                },
+                {
+                    "command": "aiSkillsManager.refreshRepo",
+                    "when": "view == aiSkillsManager.marketplace && viewItem == repo",
+                    "group": "inline@1"
+                },
+                {
+                    "command": "aiSkillsManager.refreshRepo",
+                    "when": "view == aiSkillsManager.marketplace && viewItem == repo",
+                    "group": "navigation@1"
+                },
+                {
                     "command": "aiSkillsManager.uninstall",
                     "when": "view == aiSkillsManager.installed && viewItem =~ /^installedResource/",
                     "group": "inline@1"
@@ -483,6 +511,11 @@
                     "group": "3_pack@1"
                 },
                 {
+                    "command": "aiSkillsManager.suggestAddition",
+                    "when": "view == aiSkillsManager.installed && viewItem =~ /^installedResource/",
+                    "group": "3_pack@4"
+                },
+                {
                     "command": "aiSkillsManager.localInstall",
                     "when": "view == aiSkillsManager.local && (viewItem == localResource || viewItem == localInstalledResource)",
                     "group": "inline@1"
@@ -526,6 +559,11 @@
                     "command": "aiSkillsManager.localDeleteResource",
                     "when": "view == aiSkillsManager.local && (viewItem == localResource || viewItem == localInstalledResource)",
                     "group": "2_remove@1"
+                },
+                {
+                    "command": "aiSkillsManager.suggestAddition",
+                    "when": "view == aiSkillsManager.local && (viewItem == localResource || viewItem == localInstalledResource)",
+                    "group": "3_contribute@1"
                 },
                 {
                     "command": "aiSkillsManager.localDeregisterCollection",
