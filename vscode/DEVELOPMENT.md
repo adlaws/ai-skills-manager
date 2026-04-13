@@ -46,27 +46,35 @@ ai-skills-manager/
 └── src/
     ├── extension.ts                  # Entry point — activates commands, views, watchers
     ├── types.ts                      # Shared types, enums, constants
+    ├── commands/
+    │   ├── commandContext.ts         # Shared context interface for command modules
+    │   ├── installCommands.ts        # Install, uninstall, update commands
+    │   ├── localCommands.ts          # Local collection commands
+    │   ├── managementCommands.ts     # Move, copy, create, pack, validate, config, contribute
+    │   └── marketplaceCommands.ts    # Search, favorites, tags, status bar, refresh, preview
     ├── github/
     │   └── resourceClient.ts         # GitHub API client (Contents + Trees APIs)
     ├── services/
-    │   ├── pathService.ts            # Install / scan location resolution
-    │   ├── installationService.ts    # Install, uninstall, update, copy, open resources
-    │   ├── scaffoldingService.ts     # Create new resources from category templates
-    │   ├── packService.ts            # Install and create resource pack bundles
-    │   ├── validationService.ts      # Health checks for installed resources
     │   ├── configService.ts          # Export / import extension configuration
-    │   └── usageDetectionService.ts  # Scan workspace for resource references
+    │   ├── contributionService.ts    # Push local changes back to source repos via PR
+    │   ├── frontmatterService.ts     # Shared YAML frontmatter parser
+    │   ├── installationService.ts    # Install, uninstall, update, copy, open resources
+    │   ├── packService.ts            # Install and create resource pack bundles
+    │   ├── pathService.ts            # Install / scan location resolution
+    │   ├── scaffoldingService.ts     # Create new resources from category templates
+    │   ├── usageDetectionService.ts  # Scan workspace for resource references
+    │   └── validationService.ts      # Health checks for installed resources
     ├── views/
-    │   ├── marketplaceProvider.ts    # Marketplace tree (Repo → Category → Item) + Favorites + tag filter
-    │   ├── localProvider.ts          # Local Collections tree (Collection → Category → Item)
     │   ├── installedProvider.ts       # Installed tree (Category → Item) + update badges
+    │   ├── localProvider.ts          # Local Collections tree (Collection → Category → Item)
+    │   ├── marketplaceProvider.ts    # Marketplace tree (Repo → Category → Item) + Favorites + tag filter
     │   └── resourceDetailPanel.ts     # Webview detail panel (markdown preview) + update button
     └── test/
-        ├── types.test.ts             # Constants & enum coverage
+        ├── installedProvider.test.ts   # Installed tree item + provider tests
+        ├── marketplaceProvider.test.ts # Marketplace tree item + provider tests
         ├── pathService.test.ts        # PathService unit tests
         ├── resourceClient.test.ts     # ResourceClient + SKILL.md parsing tests
-        ├── marketplaceProvider.test.ts # Marketplace tree item + provider tests
-        └── installedProvider.test.ts   # Installed tree item + provider tests
+        └── types.test.ts             # Constants & enum coverage
 ```
 
 ### Key source modules
@@ -86,7 +94,14 @@ ai-skills-manager/
 | `views/localProvider.ts` | Three-level `TreeDataProvider` (Collection → Category → Resource). Scans configured local collection folders on disk for the standard category structure. Supports search filtering and tracks which items are already installed. |
 | `views/installedProvider.ts` | Two-level `TreeDataProvider` (Category → Installed Resource). Scans configured + well-known directories on disk (both local and global). Skills are recognised by the presence of `SKILL.md`. Each item shows its scope (Global/Workspace) and uses scope-specific context values for menu control. Tracks install metadata and shows update badges on resources with available upstream changes. |
 | `views/resourceDetailPanel.ts` | Webview panel that renders resource details with `markdown-it`. Shows metadata, install/remove buttons, and a "View Source" link. Also supports viewing details for installed and local collection resources by reading content from disk. Auto-refreshes install status when the panel becomes visible. Shows update badges and an "Update" button when upstream changes are available. |
-| `extension.ts` | Wires everything together — creates service instances (including scaffolding, pack, validation, config, and usage detection services), registers all commands, sets up file watchers, creates the status bar item (showing installed count and update count), runs automatic update checks after initial load, and subscribes to configuration changes. |
+| `commands/commandContext.ts` | Defines the `CommandContext` interface — shared context passed to all command registration modules, providing access to services, providers, and helper functions. |
+| `commands/marketplaceCommands.ts` | Registers marketplace commands: search, favorites, tag filtering, status bar quick-pick menu, refresh (all or single repo), preview, and view-details. |
+| `commands/installCommands.ts` | Registers install/uninstall commands: install (local and global), uninstall (single and bulk), check for updates, update single resource, and update all. |
+| `commands/managementCommands.ts` | Registers management commands: move scope, copy to local collection, open resource, create from template, pack install/create, validate, config export/import, usage detection, repository management, propose changes, revert, and suggest addition. |
+| `commands/localCommands.ts` | Registers local collection commands: install from local (both scopes), search/clear, open resource, delete resource, view details, disconnect/add/manage collections, and refresh. |
+| `services/frontmatterService.ts` | Shared YAML frontmatter parser. Extracts name, description, license, compatibility, and tags from files with `---` delimited frontmatter blocks. Supports comma-separated and YAML array tag formats, block scalar indicators, and quoted values. |
+| `services/contributionService.ts` | Pushes local changes back to the source GitHub repository via pull requests. Verifies push access, creates a branch, commits files (Contents API for single files, Git Data API for skills), and opens a PR. Also supports suggesting additions to different target repositories. |
+| `extension.ts` | Wires everything together — creates service instances, delegates command registration to the `commands/` modules via `CommandContext`, sets up file watchers, creates the status bar item (showing installed count and update count), runs automatic update/modification checks after initial load, and subscribes to configuration changes. |
 
 ### Build outputs
 
@@ -371,6 +386,7 @@ These settings affect the extension at runtime. During development in the Extens
 | `aiSkillsManager.globalInstallLocation.agents` | string | `~/.agents/agents` | Global Agents install path |
 | `aiSkillsManager.globalInstallLocation.skills` | string | `~/.agents/skills` | Global Skills install path |
 | `aiSkillsManager.localCollections` | array | `[]` | Local folders to browse for AI resources |
+| `aiSkillsManager.localCollectionWatchInterval` | number | `30` | Interval (seconds) to check for new/deleted collection folders (min 5, max 300) |
 | `aiSkillsManager.githubToken` | string | `""` | GitHub PAT for higher rate limits |
 | `aiSkillsManager.cacheTimeout` | number | `3600` | Cache TTL in seconds |
 

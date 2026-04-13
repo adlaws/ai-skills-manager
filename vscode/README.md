@@ -159,7 +159,7 @@ When the extension starts (or refreshes), it checks whether each configured coll
 * The collection cannot be expanded (no children to show)
 * You can still **Disconnect** the collection from the right-click menu or inline button to correct your configuration
 
-Collection folders are also **watched for changes**. If a new resource is added to a collection folder on disk (or one is removed), the Local Collections tree will automatically refresh within a few seconds. If a previously missing folder is created, the extension will detect it periodically and start showing its contents. The check interval is configurable via `aiSkillsManager.localCollectionWatchInterval` (default: 30 seconds, minimum: 5 seconds).
+Collection folders are also **watched for changes**. If a new resource is added to a collection folder on disk (or one is removed), the Local Collections tree will automatically refresh within about one second (debounced). If a previously missing folder is created, the extension will detect it periodically and start showing its contents. The check interval is configurable via `aiSkillsManager.localCollectionWatchInterval` (default: 30 seconds, minimum: 5 seconds).
 
 ### Manage Repositories
 
@@ -294,13 +294,13 @@ Resources with tags in their frontmatter (e.g. `tags: python, testing, automatio
 
 ### Status Bar Quick Access
 
-A status bar item appears on the **right side** of the VS Code status bar. It uses a wrench icon (`$(tools)`) and adapts its display based on the current state:
+A status bar item appears on the **right side** of the VS Code status bar. It uses a lightbulb-sparkle icon (`$(lightbulb-sparkle)`) and adapts its display based on the current state:
 
 | State | Display | Example |
 |---|---|---|
-| No resources installed | Wrench icon + "AI Skills" label | 🔧 AI Skills |
-| Resources installed, no updates | Wrench icon + installed count | 🔧 4 |
-| Resources installed, updates available | Wrench icon + count + cloud icon + update count | 🔧 4 ⬇ 2 |
+| No resources installed | Lightbulb icon + "AI Skills" label | 💡 AI Skills |
+| Resources installed, no updates | Lightbulb icon + installed count | 💡 4 |
+| Resources installed, updates available | Lightbulb icon + count + cloud icon + update count | 💡 4 ⬇ 2 |
 
 Hovering over the status bar item shows a tooltip with a summary (e.g. "AI Skills Manager — 4 resources installed" or "AI Skills Manager — 4 installed, 2 updates available").
 
@@ -319,7 +319,7 @@ Hovering over the status bar item shows a tooltip with a summary (e.g. "AI Skill
 
 The status bar item updates automatically whenever the Installed tree changes (installs, uninstalls, updates, moves).
 
-> **Note:** VS Code's status bar API only supports built-in [codicon](https://microsoft.github.io/vscode-codicons/dist/codicon.html) icons — custom images or the AI Skills Manager logo cannot be used in the status bar. The wrench icon (`$(tools)`) was chosen as the closest match.
+> **Note:** VS Code's status bar API only supports built-in [codicon](https://microsoft.github.io/vscode-codicons/dist/codicon.html) icons — custom images or the AI Skills Manager logo cannot be used in the status bar. The lightbulb-sparkle icon (`$(lightbulb-sparkle)`) was chosen as the closest match.
 
 ### Detect Resource Usage
 
