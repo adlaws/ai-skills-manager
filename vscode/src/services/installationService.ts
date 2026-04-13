@@ -123,6 +123,9 @@ export class InstallationService {
             this.pathService.requiresWorkspaceFolder(resource.location) &&
             !workspaceFolder
         ) {
+            vscode.window.showErrorMessage(
+                `Cannot remove "${resource.name}": no workspace folder is open.`,
+            );
             return false;
         }
 
@@ -154,6 +157,9 @@ export class InstallationService {
             this.pathService.requiresWorkspaceFolder(resource.location) &&
             !workspaceFolder
         ) {
+            vscode.window.showErrorMessage(
+                `Cannot remove "${resource.name}": no workspace folder is open.`,
+            );
             return false;
         }
 
@@ -176,10 +182,18 @@ export class InstallationService {
                 );
                 return false;
             }
-            await vscode.workspace.fs.delete(uri, {
-                recursive: true,
-                useTrash: true,
-            });
+            try {
+                await vscode.workspace.fs.delete(uri, {
+                    recursive: true,
+                    useTrash: true,
+                });
+            } catch {
+                // Trash not supported (e.g. remote/dev-container filesystems) — delete permanently
+                await vscode.workspace.fs.delete(uri, {
+                    recursive: true,
+                    useTrash: false,
+                });
+            }
             return true;
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
@@ -469,10 +483,17 @@ export class InstallationService {
             });
 
             // Remove source
-            await vscode.workspace.fs.delete(sourceUri, {
-                recursive: isFolder,
-                useTrash: true,
-            });
+            try {
+                await vscode.workspace.fs.delete(sourceUri, {
+                    recursive: isFolder,
+                    useTrash: true,
+                });
+            } catch {
+                await vscode.workspace.fs.delete(sourceUri, {
+                    recursive: isFolder,
+                    useTrash: false,
+                });
+            }
 
             vscode.window.showInformationMessage(
                 `Moved "${resource.name}" to ${scopeLabel}`,

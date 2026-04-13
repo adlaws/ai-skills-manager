@@ -185,20 +185,24 @@ export function activate(context: vscode.ExtensionContext) {
         100,
     );
     statusBarItem.command = 'aiSkillsManager.statusBarAction';
-    statusBarItem.tooltip = 'AI Skills Manager — click for quick actions';
     context.subscriptions.push(statusBarItem);
+
+    const extVersion =
+        vscode.extensions.getExtension('adlaws.ai-skills-manager')
+            ?.packageJSON.version ?? '?';
 
     const updateStatusBar = () => {
         const count = installedProvider.getInstalledResources().length;
         const updates = installedProvider.getUpdatableCount();
         if (count === 0) {
-            statusBarItem.text = '$(tools) AI Skills';
+            statusBarItem.text = '$(lightbulb-sparkle) AI Skills';
+            statusBarItem.tooltip = `AI Skills Manager v${extVersion}`;
         } else if (updates > 0) {
-            statusBarItem.text = `$(tools) ${count} $(cloud-download) ${updates}`;
-            statusBarItem.tooltip = `AI Skills Manager — ${count} installed, ${updates} update${updates !== 1 ? 's' : ''} available`;
+            statusBarItem.text = `$(lightbulb-sparkle) ${count} $(cloud-download) ${updates}`;
+            statusBarItem.tooltip = `AI Skills Manager v${extVersion} — ${count} installed, ${updates} update${updates !== 1 ? 's' : ''} available`;
         } else {
-            statusBarItem.text = `$(tools) ${count}`;
-            statusBarItem.tooltip = `AI Skills Manager — ${count} resource${count !== 1 ? 's' : ''} installed`;
+            statusBarItem.text = `$(lightbulb-sparkle) ${count}`;
+            statusBarItem.tooltip = `AI Skills Manager v${extVersion} — ${count} resource${count !== 1 ? 's' : ''} installed`;
         }
         statusBarItem.show();
     };
