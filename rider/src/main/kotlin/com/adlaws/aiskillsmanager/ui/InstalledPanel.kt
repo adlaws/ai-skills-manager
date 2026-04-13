@@ -80,6 +80,7 @@ class InstalledPanel(private val project: Project) : Disposable {
 
     private var installedResources: List<InstalledResource> = emptyList()
     private var updatableNames: Set<String> = emptySet()
+    private var modifiedNames: Set<String> = emptySet()
 
     /** Listener that other panels can use to react to installed list changes */
     var onInstalledChanged: (() -> Unit)? = null
@@ -252,8 +253,28 @@ class InstalledPanel(private val project: Project) : Disposable {
     private fun loadInstalled() {
         val projectService = ProjectService.getInstance(project)
         installedResources = projectService.scanInstalledResources()
+        checkForModifications()
         rebuildTree()
         onInstalledChanged?.invoke()
+    }
+
+    /**
+     * Check for local modifications by comparing current content hashes
+     * against the hashes stored at install time. Purely local — no network.
+     */
+    private fun checkForModifications() {
+        val modified = mutableSetOf<String>()
+        val installSvc = InstallationService(ResourceClient().apply { syncSettings() }, ProjectService.getInstance(project))
+        for (resource in installedResources) {
+            try {
+                if (installSvc.isResourceModified(resource)) {
+                    modified.add(resource.name)
+                }
+            } catch (_: Exception) {
+                // Skip resources that can't be hashed
+            }
+        }
+        modifiedNames = modified
     }
 
     private fun rebuildTree() {
@@ -263,10 +284,12 @@ class InstalledPanel(private val project: Project) : Disposable {
         for (category in ResourceCategory.entries) {
             val items = byCategory[category] ?: continue
             val updateCount = items.count { updatableNames.contains(it.name) }
-            val categoryNode = DefaultMutableTreeNode(CategoryNodeData(category, items.size, updateCount))
+            val modifiedCount = items.count { modifiedNames.contains(it.name) }
+            val categoryNode = DefaultMutableTreeNode(CategoryNodeData(category, items.size, updateCount, modifiedCount))
             for (item in items) {
                 val hasUpdate = updatableNames.contains(item.name)
-                categoryNode.add(DefaultMutableTreeNode(InstalledNodeData(item, hasUpdate)))
+                val isModified = modifiedNames.contains(item.name)
+                categoryNode.add(DefaultMutableTreeNode(InstalledNodeData(item, hasUpdate, isModified)))
             }
             rootNode.add(categoryNode)
         }
@@ -1121,15 +1144,16 @@ class InstalledPanel(private val project: Project) : Disposable {
 
     // ---- Node data ----
 
-    data class InstalledNodeData(val resource: InstalledResource, val hasUpdate: Boolean) {
+    data class InstalledNodeData(val resource: InstalledResource, val hasUpdate: Boolean, val isModified: Boolean = false) {
         override fun toString(): String {
             val scope = if (resource.scope == InstallScope.GLOBAL) "Global" else "Workspace"
             val update = if (hasUpdate) " ↑" else ""
-            return "${resource.name} [$scope]$update"
+            val modified = if (isModified) " ✎" else ""
+            return "${resource.name} [$scope]$update$modified"
         }
     }
 
-    data class CategoryNodeData(val category: ResourceCategory, val count: Int, val updateCount: Int) {
+    data class CategoryNodeData(val category: ResourceCategory, val count: Int, val updateCount: Int, val modifiedCount: Int = 0) {
         override fun toString(): String {
             val update = if (updateCount > 0) " — $updateCount update(s)" else ""
             return "${category.label} ($count)$update"
@@ -1150,7 +1174,9 @@ class InstalledPanel(private val project: Project) : Disposable {
                     val scope = if (r.scope == InstallScope.GLOBAL) "🌐" else "📁"
                     append("$scope ${r.name}", SimpleTextAttributes.REGULAR_ATTRIBUTES)
                     if (data.hasUpdate) append(" ⬆", SimpleTextAttributes(SimpleTextAttributes.STYLE_BOLD, java.awt.Color(0x58, 0x9d, 0xf6)))
-                    toolTipText = "${r.path} [${if (r.scope == InstallScope.GLOBAL) "Global" else "Workspace"}]"
+                    if (data.isModified) append(" ✎", SimpleTextAttributes(SimpleTextAttributes.STYLE_BOLD, java.awt.Color(0xd4, 0x9e, 0x3a)))
+                    val modifiedIndicator = if (data.isModified) ", modified" else ""
+                    toolTipText = "${r.path} [${if (r.scope == InstallScope.GLOBAL) "Global" else "Workspace"}]$modifiedIndicator"
                     icon = null
                 }
                 is CategoryNodeData -> {

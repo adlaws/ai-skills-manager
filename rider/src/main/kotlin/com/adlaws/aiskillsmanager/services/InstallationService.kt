@@ -24,6 +24,44 @@ class InstallationService(
 
     private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
 
+    // ── Metadata batch mode ─────────────────────────────────────
+
+    /**
+     * When non-null, metadata writes are queued instead of written to disk
+     * immediately. Key = directory path, value = (metaFilePath, entries map).
+     */
+    private var metadataBatch: MutableMap<String, MutableMap<String, InstallMetadata>>? = null
+
+    /**
+     * Begin batching metadata writes. While batching, `saveInstallMetadata`
+     * writes to an in-memory queue instead of disk. Call [flushMetadataBatch]
+     * to write all queued entries grouped by category file.
+     */
+    fun beginMetadataBatch() {
+        metadataBatch = mutableMapOf()
+    }
+
+    /**
+     * Flush all queued metadata writes. Groups entries by target file
+     * and does one read-modify-write per file.
+     */
+    fun flushMetadataBatch() {
+        val batch = metadataBatch ?: return
+        metadataBatch = null
+
+        for ((dirPath, entries) in batch) {
+            try {
+                val dir = Paths.get(dirPath)
+                val metaFile = dir.resolve(".ai-skills-meta.json")
+                val existing = readAllMetadata(metaFile)
+                existing.putAll(entries)
+                Files.writeString(metaFile, gson.toJson(existing))
+            } catch (_: Exception) {
+                // Non-critical — silently ignore metadata errors
+            }
+        }
+    }
+
     /**
      * Install a resource from the marketplace.
      */
@@ -319,12 +357,22 @@ class InstallationService(
     private fun saveInstallMetadata(item: ResourceItem, targetDir: Path) {
         val resourcePath = if (item.isFolder) targetDir.resolve(item.name) else targetDir.resolve(item.name)
         val contentHash = computeContentHash(resourcePath)
-        writeMetadata(targetDir, item.name, InstallMetadata(
+        val entry = InstallMetadata(
             sha = item.sha ?: "",
             sourceRepo = "${item.repoOwner}/${item.repoName}",
             installedAt = Instant.now().toString(),
             contentHash = contentHash
-        ))
+        )
+
+        // In batch mode, queue the write instead of writing immediately
+        val batch = metadataBatch
+        if (batch != null) {
+            val key = targetDir.toString()
+            batch.getOrPut(key) { mutableMapOf() }[item.name] = entry
+            return
+        }
+
+        writeMetadata(targetDir, item.name, entry)
     }
 
     private fun writeMetadata(dir: Path, resourceName: String, metadata: InstallMetadata) {

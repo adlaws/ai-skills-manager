@@ -359,13 +359,16 @@ class MarketplacePanel(private val project: Project) {
         val menu = JPopupMenu()
 
         if (selectedItems.size > 1) {
-            menu.add(JMenuItem("Install ${selectedItems.size} to Workspace").apply {
-                addActionListener { selectedItems.forEach { installItem(it, InstallScope.WORKSPACE) } }
-            })
-            menu.add(JMenuItem("Install ${selectedItems.size} Globally").apply {
-                addActionListener { selectedItems.forEach { installItem(it, InstallScope.GLOBAL) } }
-            })
-            menu.addSeparator()
+            val notInstalledItems = selectedItems.filter { !installedNames.contains(it.name) }
+            if (notInstalledItems.isNotEmpty()) {
+                menu.add(JMenuItem("Install ${notInstalledItems.size} to Workspace").apply {
+                    addActionListener { notInstalledItems.forEach { installItem(it, InstallScope.WORKSPACE) } }
+                })
+                menu.add(JMenuItem("Install ${notInstalledItems.size} Globally").apply {
+                    addActionListener { notInstalledItems.forEach { installItem(it, InstallScope.GLOBAL) } }
+                })
+                menu.addSeparator()
+            }
             menu.add(JMenuItem("Toggle Favorite for ${selectedItems.size} Items").apply {
                 addActionListener {
                     val stateService = StateService.getInstance()
@@ -375,14 +378,17 @@ class MarketplacePanel(private val project: Project) {
             })
         } else {
             val item = selectedItems.first()
+            val isInstalled = installedNames.contains(item.name)
 
-            menu.add(JMenuItem("Install to Workspace").apply {
-                addActionListener { installItem(item, InstallScope.WORKSPACE) }
-            })
-            menu.add(JMenuItem("Install Globally").apply {
-                addActionListener { installItem(item, InstallScope.GLOBAL) }
-            })
-            menu.addSeparator()
+            if (!isInstalled) {
+                menu.add(JMenuItem("Install to Workspace").apply {
+                    addActionListener { installItem(item, InstallScope.WORKSPACE) }
+                })
+                menu.add(JMenuItem("Install Globally").apply {
+                    addActionListener { installItem(item, InstallScope.GLOBAL) }
+                })
+                menu.addSeparator()
+            }
 
             val stateService = StateService.getInstance()
             val favId = buildFavoriteId(item)

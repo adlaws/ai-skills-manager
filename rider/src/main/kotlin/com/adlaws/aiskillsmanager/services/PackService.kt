@@ -38,6 +38,9 @@ class PackService(private val project: Project) {
         var notFound = 0
         var failed = 0
 
+        // Batch metadata writes for efficiency during pack installs
+        installationService.beginMetadataBatch()
+
         for (ref in pack.resources) {
             val item = resolvePackRef(ref, marketplaceItems, localItems)
             if (item == null) {
@@ -51,6 +54,8 @@ class PackService(private val project: Project) {
             }
             if (success) installed++ else failed++
         }
+
+        installationService.flushMetadataBatch()
 
         return Triple(installed, notFound, failed)
     }
