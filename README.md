@@ -64,9 +64,9 @@ Both extensions provide the same core functionality:
 * **Configuration Export/Import** — Share settings across machines
 * **Resource Validation** — Health checks for installed resources
 * **Usage Detection** — Find which resources are referenced in workspace files
-* **Multi-Select** — Bulk operations on multiple resources
-* **Propose Changes** — Push local modifications back to the source repository as a pull request
-* **Revert to Repository Version** — Restore a modified resource to its original upstream content
+* **Multi-Select** — Bulk operations on multiple resources (install, uninstall, move, update, favorite, create packs, propose changes, revert, and more)
+* **Propose Changes** — Push local modifications back to the source repository as a pull request; bulk-select multiple resources to submit a single PR per repository
+* **Revert to Repository Version** — Restore modified resources to their original upstream content; bulk-select to revert multiple resources with a single confirmation
 * **Modification Detection** — SHA-256 content hashes detect local edits to installed resources
 * **Status Bar** — Quick access to installed count and common actions
 * **File Watchers** — Automatic refresh when files change on disk

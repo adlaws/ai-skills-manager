@@ -354,6 +354,8 @@ When multiple items are selected, right-click to see the available bulk actions.
 * **Update** — Update all selected resources that have available updates
 * **Copy to Local Collection** — Copy all selected resources to a collection
 * **Create Resource Pack** — Create a pack from the selected resources
+* **Propose Changes…** — Submit a single pull request containing all selected modified resources, grouped by source repository (resources without source repo metadata are silently skipped)
+* **Revert to Repository Version…** — Revert all selected modified resources to their upstream versions with a single confirmation prompt (resources without source repo metadata are silently skipped)
 * **Delete from Disk** — Delete all selected local collection resources (with one confirmation)
 
 ### Propose Changes
@@ -368,9 +370,12 @@ If you've modified an installed resource locally and want to push your changes b
 6. The extension creates the branch, commits your local file(s), and opens a pull request
 7. A notification shows the PR number with an **Open in Browser** link
 
+**Bulk propose changes:** When multiple resources are selected, the extension groups them by source repository and creates one branch and pull request per repository, committing all changes atomically via the Git Data API. Resources without source repo metadata are silently skipped. The auto-generated branch name and PR description reflect the number of included resources.
+
 **How it works under the hood:**
 * Single-file resources are committed via the GitHub Contents API (PUT)
 * Multi-file skills use the Git Data API (create blobs → tree → commit → update ref) for atomic commits
+* Bulk operations always use the Git Data API for atomic multi-file commits
 * Only resources installed from a marketplace repository (with `sourceRepo` metadata) can be proposed
 * The feature targets direct collaborators only — fork-based contributions may be supported in a future update
 
@@ -379,8 +384,11 @@ If you've modified an installed resource locally and want to push your changes b
 If you've modified an installed resource and want to undo your changes, you can revert it to the original version from the source repository:
 
 1. **Right-click** an installed resource that shows a **"Modified"** indicator and choose **Revert to Repository Version…**, or click the **Revert to Repository Version…** button in the resource detail panel
-2. Confirm that you want to overwrite your local changes
-3. The extension fetches the original content from the upstream repository and replaces your local copy
+2. For a single resource, a diff is shown so you can review the changes before confirming
+3. Confirm that you want to overwrite your local changes
+4. The extension fetches the original content from the upstream repository and replaces your local copy
+
+**Bulk revert:** When multiple resources are selected, a single confirmation prompt lists all resources that will be reverted. Individual diffs are skipped for bulk operations. Resources without source repo metadata are silently skipped.
 
 ### Suggest Addition
 
@@ -400,9 +408,6 @@ You can suggest adding any resource — from the Marketplace, a Local Collection
 * If the resource already exists in the target repository, a warning is shown — you can still proceed (the PR will show the differences)
 * Repositories configured with a `skillsPath` (skills-only repos) will only accept skill resources; suggesting other categories to these repos shows a warning
 * Unlike **Propose Changes** (which pushes edits back to a resource's *source* repo), **Suggest Addition** copies a resource *to a different repo entirely*
-4. The modification indicator is removed and the content hash is updated
-
-> **Note:** Only resources installed from a marketplace repository (with `sourceRepo` metadata) that have been locally modified will show the revert option.
 
 ### Modification Detection
 

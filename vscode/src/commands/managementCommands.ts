@@ -421,10 +421,18 @@ export function registerManagementCommands(
                         return;
                     }
 
-                    // Only process the first resource (propose changes is inherently per-resource)
-                    const resource = resources[0];
-                    const meta = ctx.installedProvider.getMetadata(resource.name);
-                    await ctx.contributionService.proposeChanges(resource, meta);
+                    if (resources.length === 1) {
+                        // Single resource — use the original per-resource flow (with diff)
+                        const resource = resources[0];
+                        const meta = ctx.installedProvider.getMetadata(resource.name);
+                        await ctx.contributionService.proposeChanges(resource, meta);
+                    } else {
+                        // Multiple resources — use bulk flow (grouped by repo, single PR per repo)
+                        await ctx.contributionService.proposeChangesForMultiple(
+                            resources,
+                            (name) => ctx.installedProvider.getMetadata(name),
+                        );
+                    }
                 } catch (err) {
                     const msg = err instanceof Error ? err.message : String(err);
                     vscode.window.showErrorMessage(`Failed to propose changes: ${msg}`);
@@ -486,14 +494,53 @@ export function registerManagementCommands(
                     return;
                 }
 
-                // Process first resource only (revert is inherently per-resource due to diff)
-                const resource = resources[0];
-                const meta = ctx.installedProvider.getMetadata(resource.name);
-                const ok = await ctx.installationService.revertResource(resource, meta);
-                if (ok) {
-                    await ctx.syncInstalledStatus();
-                    await ctx.checkForUpdates();
-                    await ctx.checkForModifications();
+                if (resources.length === 1) {
+                    // Single resource — use the original per-resource flow (with diff)
+                    const resource = resources[0];
+                    const meta = ctx.installedProvider.getMetadata(resource.name);
+                    const ok = await ctx.installationService.revertResource(resource, meta);
+                    if (ok) {
+                        await ctx.syncInstalledStatus();
+                        await ctx.checkForUpdates();
+                        await ctx.checkForModifications();
+                    }
+                } else {
+                    // Multiple resources — filter to those with source repo metadata
+                    const revertable = resources.filter((r) => {
+                        const meta = ctx.installedProvider.getMetadata(r.name);
+                        const sourceRepo = meta?.sourceRepo ?? r.sourceRepo;
+                        return !!(sourceRepo?.owner && sourceRepo?.repo && sourceRepo?.filePath);
+                    });
+
+                    if (revertable.length === 0) {
+                        vscode.window.showInformationMessage(
+                            'None of the selected resources have source repository metadata to revert to.',
+                        );
+                        return;
+                    }
+
+                    const names = revertable.map((r) => r.name);
+                    const confirm = await vscode.window.showWarningMessage(
+                        `Revert ${revertable.length} resource${revertable.length > 1 ? 's' : ''} to their repository versions? This will discard all local changes.\n\n${names.join(', ')}`,
+                        { modal: true },
+                        'Revert All',
+                    );
+                    if (confirm !== 'Revert All') {
+                        return;
+                    }
+
+                    let anySuccess = false;
+                    for (const resource of revertable) {
+                        const meta = ctx.installedProvider.getMetadata(resource.name);
+                        const ok = await ctx.installationService.revertResource(resource, meta, false);
+                        if (ok) { anySuccess = true; }
+                    }
+
+                    if (anySuccess) {
+                        await ctx.syncInstalledStatus();
+                        await ctx.checkForUpdates();
+                        await ctx.checkForModifications();
+                    }
                 }
             },
         ),

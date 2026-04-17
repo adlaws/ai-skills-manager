@@ -252,6 +252,217 @@ export class ContributionService {
     }
 
     /**
+     * Propose changes for multiple installed resources back to their source repositories.
+     * Groups resources by source repo and creates one PR per repo.
+     * Resources without source repo metadata are silently skipped.
+     */
+    async proposeChangesForMultiple(
+        resources: InstalledResource[],
+        getMetadata: (name: string) => InstallMetadata[string] | undefined,
+    ): Promise<void> {
+        // 1. Filter to resources that can propose changes and group by repo
+        const grouped = new Map<string, { owner: string; repo: string; branch: string; items: { resource: InstalledResource; metadata: InstallMetadata[string]; filePath: string }[] }>();
+
+        for (const resource of resources) {
+            const meta = getMetadata(resource.name);
+            if (!this.canProposeChanges(resource, meta)) {
+                continue;
+            }
+            const sourceRepo = (meta?.sourceRepo ?? resource.sourceRepo)!;
+            const key = `${sourceRepo.owner}/${sourceRepo.repo}`;
+
+            // Look up the current configured branch
+            const configuredRepos = vscode.workspace
+                .getConfiguration('aiSkillsManager')
+                .get<ResourceRepository[]>('repositories', []);
+            const matchingRepo = configuredRepos.find(
+                (r) => r.owner === sourceRepo.owner && r.repo === sourceRepo.repo,
+            );
+            const sourceBranch = matchingRepo?.branch ?? sourceRepo.branch;
+
+            if (!grouped.has(key)) {
+                grouped.set(key, {
+                    owner: sourceRepo.owner,
+                    repo: sourceRepo.repo,
+                    branch: sourceBranch,
+                    items: [],
+                });
+            }
+            grouped.get(key)!.items.push({
+                resource,
+                metadata: meta!,
+                filePath: sourceRepo.filePath,
+            });
+        }
+
+        if (grouped.size === 0) {
+            vscode.window.showInformationMessage(
+                'None of the selected resources have source repository metadata or local modifications to propose.',
+            );
+            return;
+        }
+
+        // 2. Get write-scoped auth token
+        const token = await this.client.getWriteAuthToken();
+        if (!token) {
+            vscode.window.showErrorMessage(
+                'GitHub authentication with write access is required to propose changes. Please sign in when prompted.',
+            );
+            return;
+        }
+
+        // 3. Process each repo group
+        for (const [repoKey, group] of grouped) {
+            const { owner, repo, branch: sourceBranch, items } = group;
+
+            // Verify push access
+            const hasPushAccess = await this.checkPushAccess(token, owner, repo);
+            if (!hasPushAccess) {
+                vscode.window.showErrorMessage(
+                    `You don't have write access to ${owner}/${repo}. Skipping ${items.length} resource(s).`,
+                );
+                continue;
+            }
+
+            // Read all local files
+            const allFiles: { basePath: string; relativePath: string; content: string; resourceName: string; isSkill: boolean }[] = [];
+            for (const item of items) {
+                const localFiles = await this.readLocalFiles(item.resource);
+                if (localFiles.length === 0) {
+                    continue;
+                }
+                const isSkill = item.resource.category === ResourceCategory.Skills;
+                for (const file of localFiles) {
+                    allFiles.push({
+                        basePath: item.filePath,
+                        relativePath: file.relativePath,
+                        content: file.content,
+                        resourceName: item.resource.name,
+                        isSkill,
+                    });
+                }
+            }
+
+            if (allFiles.length === 0) {
+                vscode.window.showWarningMessage(
+                    `Could not read local files for resources in ${repoKey}. Skipping.`,
+                );
+                continue;
+            }
+
+            // Prompt for branch name
+            const names = items.map((i) => i.resource.name);
+            const sanitized = names.length <= 3
+                ? names.map((n) => n.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')).join('+')
+                : `${items.length}-resources`;
+            const timestamp = new Date().toISOString().slice(0, 10);
+            const defaultBranch = `ai-skills-manager/bulk-update/${sanitized}/${timestamp}`;
+            const branchName = await vscode.window.showInputBox({
+                prompt: `Branch name for changes to ${repoKey} (${items.length} resource${items.length > 1 ? 's' : ''})`,
+                value: defaultBranch,
+                placeHolder: defaultBranch,
+                validateInput: (value) => {
+                    if (!value.trim()) { return 'Branch name is required'; }
+                    if (!/^[a-zA-Z0-9._\-/]+$/.test(value)) { return 'Branch name contains invalid characters'; }
+                    return undefined;
+                },
+            });
+            if (!branchName) { return; }
+
+            // Prompt for PR title and description
+            const defaultTitle = items.length === 1
+                ? `Update ${items[0].resource.name}`
+                : `Update ${items.length} resources`;
+            const prTitle = await vscode.window.showInputBox({
+                prompt: 'Pull request title',
+                value: defaultTitle,
+                placeHolder: defaultTitle,
+            });
+            if (!prTitle) { return; }
+
+            const defaultDescription = items.length > 1
+                ? `Updated resources:\n${names.map((n) => `- ${n}`).join('\n')}`
+                : undefined;
+            const prDescription = await vscode.window.showInputBox({
+                prompt: 'Pull request description (optional)',
+                value: defaultDescription,
+                placeHolder: 'Describe your changes…',
+            });
+
+            // Execute the push workflow
+            await vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: `Proposing changes for ${items.length} resource(s) to ${repoKey}…`,
+                    cancellable: false,
+                },
+                async (progress) => {
+                    try {
+                        progress.report({ message: 'Getting latest commit…' });
+                        const baseSha = await this.getBranchHeadSha(token, owner, repo, sourceBranch);
+                        if (!baseSha) {
+                            throw new Error(`Could not get HEAD SHA for branch "${sourceBranch}".`);
+                        }
+
+                        progress.report({ message: 'Creating branch…' });
+                        const branchCreated = await this.createBranch(token, owner, repo, branchName, baseSha);
+                        if (!branchCreated) {
+                            throw new Error(
+                                `Could not create branch "${branchName}". It may already exist — try a different name.`,
+                            );
+                        }
+
+                        progress.report({ message: 'Pushing changes…' });
+
+                        // Collect all files into a single commit using Git Data API
+                        const commitFiles: { relativePath: string; content: string }[] = [];
+                        for (const file of allFiles) {
+                            const fullPath = file.isSkill
+                                ? `${file.basePath}/${file.relativePath}`
+                                : file.basePath;
+                            commitFiles.push({ relativePath: fullPath, content: file.content });
+                        }
+
+                        // Use Git Data API for atomic multi-file commit
+                        await this.commitMultipleFilesAbsolute(
+                            token, owner, repo, branchName, baseSha,
+                            commitFiles, `Update ${items.length} resource(s)`,
+                        );
+
+                        // Create PR
+                        progress.report({ message: 'Creating pull request…' });
+                        const body = [
+                            prDescription || '',
+                            '',
+                            '---',
+                            '_Proposed via [AI Skills Manager](https://marketplace.visualstudio.com/items?itemName=adlaws.ai-skills-manager)_',
+                        ].join('\n');
+
+                        const pr = await this.createPullRequest(
+                            token, owner, repo,
+                            branchName, sourceBranch,
+                            prTitle, body,
+                        );
+
+                        if (pr) {
+                            const action = await vscode.window.showInformationMessage(
+                                `Pull request #${pr.number} created on ${repoKey}!`,
+                                'Open in Browser',
+                            );
+                            if (action === 'Open in Browser') {
+                                vscode.env.openExternal(vscode.Uri.parse(pr.html_url));
+                            }
+                        }
+                    } catch (error) {
+                        const msg = error instanceof Error ? error.message : String(error);
+                        vscode.window.showErrorMessage(`Failed to propose changes to ${repoKey}: ${msg}`);
+                    }
+                },
+            );
+        }
+    }
+
+    /**
      * Suggest adding a resource to a target repository.
      *
      * Creates a branch and pull request with the resource file(s) in the
@@ -721,6 +932,115 @@ export class ContributionService {
         const newCommit = (await commitResponse.json()) as GitHubCommitResponse;
 
         // 5. Update the branch ref to point to the new commit
+        const updateRefResponse = await fetch(
+            `${ContributionService.API_URL}/repos/${owner}/${repo}/git/refs/heads/${branch}`,
+            {
+                method: 'PATCH',
+                headers: this.authHeaders(token),
+                body: JSON.stringify({
+                    sha: newCommit.sha,
+                }),
+            },
+        );
+        if (!updateRefResponse.ok) {
+            throw new Error('Failed to update branch reference');
+        }
+    }
+
+    /**
+     * Commit multiple files atomically using the Git Data API with pre-computed absolute paths.
+     * Unlike commitMultipleFiles, each file's relativePath is used as-is for the tree path.
+     */
+    private async commitMultipleFilesAbsolute(
+        token: string,
+        owner: string,
+        repo: string,
+        branch: string,
+        baseSha: string,
+        files: { relativePath: string; content: string }[],
+        commitMessage: string,
+    ): Promise<void> {
+        // 1. Create blobs for each file
+        const blobShas: { path: string; sha: string }[] = [];
+        for (const file of files) {
+            const blobResponse = await fetch(
+                `${ContributionService.API_URL}/repos/${owner}/${repo}/git/blobs`,
+                {
+                    method: 'POST',
+                    headers: this.authHeaders(token),
+                    body: JSON.stringify({
+                        content: Buffer.from(file.content).toString('base64'),
+                        encoding: 'base64',
+                    }),
+                },
+            );
+
+            if (!blobResponse.ok) {
+                throw new Error(`Failed to create blob for ${file.relativePath}`);
+            }
+
+            const blob = (await blobResponse.json()) as GitHubBlobResponse;
+            blobShas.push({
+                path: file.relativePath,
+                sha: blob.sha,
+            });
+        }
+
+        // 2. Get the base tree SHA from the base commit
+        const baseCommitResponse = await fetch(
+            `${ContributionService.API_URL}/repos/${owner}/${repo}/git/commits/${baseSha}`,
+            {
+                headers: this.authHeaders(token),
+            },
+        );
+        if (!baseCommitResponse.ok) {
+            throw new Error('Failed to get base commit');
+        }
+        const baseCommit = (await baseCommitResponse.json()) as { tree: { sha: string } };
+
+        // 3. Create a new tree
+        const treeItems = blobShas.map((b) => ({
+            path: b.path,
+            mode: '100644' as const,
+            type: 'blob' as const,
+            sha: b.sha,
+        }));
+
+        const treeResponse = await fetch(
+            `${ContributionService.API_URL}/repos/${owner}/${repo}/git/trees`,
+            {
+                method: 'POST',
+                headers: this.authHeaders(token),
+                body: JSON.stringify({
+                    base_tree: baseCommit.tree.sha,
+                    tree: treeItems,
+                }),
+            },
+        );
+        if (!treeResponse.ok) {
+            throw new Error('Failed to create tree');
+        }
+        const newTree = (await treeResponse.json()) as GitHubTreeResponse;
+
+        // 4. Create a new commit
+        const commitResponse = await fetch(
+            `${ContributionService.API_URL}/repos/${owner}/${repo}/git/commits`,
+            {
+                method: 'POST',
+                headers: this.authHeaders(token),
+                body: JSON.stringify({
+                    message: commitMessage,
+                    tree: newTree.sha,
+                    parents: [baseSha],
+                }),
+            },
+        );
+        if (!commitResponse.ok) {
+            throw new Error('Failed to create commit');
+        }
+        const newCommit = (await commitResponse.json()) as GitHubCommitResponse;
+
+        // 5. Update the branch ref
         const updateRefResponse = await fetch(
             `${ContributionService.API_URL}/repos/${owner}/${repo}/git/refs/heads/${branch}`,
             {
