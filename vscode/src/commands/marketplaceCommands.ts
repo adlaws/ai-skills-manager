@@ -361,5 +361,36 @@ export function registerMarketplaceCommands(
                 }
             },
         ),
+
+        // Copy resource name with configurable prefix (for pasting into AI chat)
+        vscode.commands.registerCommand(
+            'aiSkillsManager.copyResourceName',
+            async (
+                treeItemOrItem: ResourceTreeItem | InstalledResourceTreeItem | LocalResourceTreeItem | ResourceItem,
+            ) => {
+                let name: string | undefined;
+
+                if (treeItemOrItem instanceof ResourceTreeItem) {
+                    name = treeItemOrItem.resource.name;
+                } else if (treeItemOrItem instanceof InstalledResourceTreeItem) {
+                    name = treeItemOrItem.resource.name;
+                } else if (treeItemOrItem instanceof LocalResourceTreeItem) {
+                    name = treeItemOrItem.resource.name;
+                } else if (treeItemOrItem && typeof (treeItemOrItem as ResourceItem).name === 'string') {
+                    name = (treeItemOrItem as ResourceItem).name;
+                }
+
+                if (!name) {
+                    return;
+                }
+
+                const config = vscode.workspace.getConfiguration('aiSkillsManager');
+                const prefix = config.get<string>('copyNamePrefix', '/');
+                const text = `${prefix}${name}`;
+
+                await vscode.env.clipboard.writeText(text);
+                vscode.window.showInformationMessage(`Copied "${text}" to clipboard`);
+            },
+        ),
     ];
 }

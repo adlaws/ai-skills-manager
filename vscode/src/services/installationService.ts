@@ -104,8 +104,26 @@ export class InstallationService {
         }
 
         // Persist install metadata (SHA + source repo) for update detection
-        if (result && item.file.sha && item.repo?.owner && item.repo?.repo) {
-            await this.saveInstallMetadata(item, scope, this._lastContentHash);
+        if (result && item.repo?.owner && item.repo?.repo) {
+            // If file.sha is missing (e.g. skills from Trees API repos), fetch it
+            if (!item.file.sha) {
+                try {
+                    const remoteSha = await this.client.fetchResourceSha(
+                        item.repo.owner,
+                        item.repo.repo,
+                        item.repo.branch,
+                        item.file.path,
+                    );
+                    if (remoteSha) {
+                        item.file.sha = remoteSha;
+                    }
+                } catch {
+                    // Non-critical — proceed without SHA
+                }
+            }
+            if (item.file.sha) {
+                await this.saveInstallMetadata(item, scope, this._lastContentHash);
+            }
         }
 
         return result;

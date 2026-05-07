@@ -54,6 +54,7 @@
 * Branch names are auto-generated as `ai-skills-manager/{category}/{name}/{date}` and presented in an editable input box.
 * The feature targets direct collaborators only (no fork-based workflow). Non-collaborators see a clear error message.
 * The `suggestAddition` command lets users right-click any resource (marketplace, local, or installed) and suggest adding it to a **different** target repository via a pull request. Unlike `proposeChanges` (which pushes edits back to the *source* repo), this copies a resource *to* a chosen repo. Available from all three tree context menus. The user picks a target from configured repositories, and the service creates a branch + PR. Skills-only repos (with `skillsPath`) only accept skill resources; non-skill categories are rejected with a warning. Content is fetched from GitHub for marketplace items, read from disk for local/installed items.
+* The `copyResourceName` command copies a resource name with a configurable prefix (`aiSkillsManager.copyNamePrefix`, default `/`) to the clipboard. Available from all three tree context menus (Marketplace, Local Collections, Installed). Useful for pasting skill invocations into AI chat.
 
 ## JetBrains / Rider Plugin (`rider/`)
 

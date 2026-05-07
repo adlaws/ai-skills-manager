@@ -2,7 +2,7 @@
     "name": "ai-skills-manager",
     "displayName": "AI Skills Manager",
     "description": "One-stop-shop for discovering, installing, and managing AI development resources \u2013 Chat Modes, Instructions, Prompts, Agents, and Skills \u2013 from GitHub repositories with customizable install locations",
-    "version": "0.1.7",
+    "version": "0.1.8",
     "icon": "resources/logo.png",
     "publisher": "adlaws",
     "engines": {
@@ -309,6 +309,12 @@
                 "command": "aiSkillsManager.statusBarAction",
                 "title": "Quick Actions",
                 "category": "AI Skills Manager"
+            },
+            {
+                "command": "aiSkillsManager.copyResourceName",
+                "title": "Copy Name for Chat",
+                "icon": "$(copy)",
+                "category": "AI Skills Manager"
             }
         ],
         "menus": {
@@ -416,6 +422,11 @@
                     "group": "1_details@1"
                 },
                 {
+                    "command": "aiSkillsManager.copyResourceName",
+                    "when": "view == aiSkillsManager.marketplace && (viewItem == resource || viewItem == favoriteResource)",
+                    "group": "1_details@2"
+                },
+                {
                     "command": "aiSkillsManager.suggestAddition",
                     "when": "view == aiSkillsManager.marketplace && (viewItem == resource || viewItem == favoriteResource)",
                     "group": "3_contribute@1"
@@ -471,9 +482,14 @@
                     "group": "navigation@2"
                 },
                 {
+                    "command": "aiSkillsManager.copyResourceName",
+                    "when": "view == aiSkillsManager.installed && viewItem =~ /^installedResource/",
+                    "group": "navigation@3"
+                },
+                {
                     "command": "aiSkillsManager.updateResource",
                     "when": "view == aiSkillsManager.installed && viewItem =~ /^installedResource.*Updatable/",
-                    "group": "navigation@3"
+                    "group": "navigation@4"
                 },
                 {
                     "command": "aiSkillsManager.moveToGlobal",
@@ -554,6 +570,11 @@
                     "command": "aiSkillsManager.localOpenResource",
                     "when": "view == aiSkillsManager.local && (viewItem == localResource || viewItem == localInstalledResource)",
                     "group": "1_details@2"
+                },
+                {
+                    "command": "aiSkillsManager.copyResourceName",
+                    "when": "view == aiSkillsManager.local && (viewItem == localResource || viewItem == localInstalledResource)",
+                    "group": "1_details@3"
                 },
                 {
                     "command": "aiSkillsManager.localDeleteResource",
@@ -748,6 +769,11 @@
                     "minimum": 5,
                     "maximum": 300,
                     "description": "How often (in seconds) to check local collection folders for existence changes. Lower values detect changes faster but use more resources. Minimum: 5, Maximum: 300."
+                },
+                "aiSkillsManager.copyNamePrefix": {
+                    "type": "string",
+                    "default": "/",
+                    "description": "Prefix to prepend when copying a resource name for chat (e.g. '/' for Copilot skill invocation). Set to empty string for no prefix."
                 }
             }
         }

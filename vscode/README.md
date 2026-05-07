@@ -36,6 +36,7 @@ A one-stop-shop for **Chat Modes**, **Instructions**, **Prompts**, **Agents**, a
 * **Suggest Addition** — Right-click any resource (marketplace, local, or installed) and suggest adding it to a different GitHub repository via a pull request
 * **Revert to Repository Version** — Restore a modified resource to its original installed state by fetching the upstream content
 * **Modification Detection** — Automatically detects when installed resources have been locally modified, showing a "Modified" indicator in the tree and enabling revert/propose actions
+* **Copy Name for Chat** — Right-click any resource and copy its name (with a configurable prefix, default `/`) to the clipboard for quick pasting into AI chat
 
 ## Quick Start
 
@@ -90,6 +91,7 @@ Click any resource in the Marketplace, Local Collections, or Installed tree to p
    * **Open** — open the file or folder in the editor
    * **Move to Global** / **Move to Workspace** — relocate between scopes (shown based on current scope)
    * **Copy to Local Collection** — copy the resource into a configured local collection folder
+   * **Copy Name for Chat** — copy the resource name (with configurable prefix) to the clipboard for pasting into AI chat
    * **Propose Changes…** — push your local modifications back to the source repository as a pull request (only shown when locally modified)
    * **Suggest Addition…** — suggest adding this resource to a different GitHub repository via a pull request
    * **Revert to Repository Version…** — restore the resource to its original installed state from the upstream repository (only shown when locally modified)
@@ -521,6 +523,12 @@ Provide a [personal access token](https://github.com/settings/tokens) with `publ
 
 How often (in seconds) to check local collection folders for existence changes — detecting when missing folders are created on disk, or existing folders are deleted. Lower values detect changes faster but use more resources. Default: `30`. Minimum: `5`. Maximum: `300`.
 
+### Copy Name Prefix
+
+**Setting:** `aiSkillsManager.copyNamePrefix`
+
+Prefix to prepend when copying a resource name for chat (e.g. `/` for Copilot skill invocation). Default: `/`. Set to an empty string for no prefix.
+
 ### Cache Timeout
 
 **Setting:** `aiSkillsManager.cacheTimeout`
@@ -569,6 +577,7 @@ Available via Command Palette (`Ctrl+Shift+P`):
 | AI Skills Manager: Propose Changes… | Push local modifications to the source repository as a pull request |
 | AI Skills Manager: Suggest Addition… | Suggest adding a resource to a different GitHub repository via a pull request |
 | AI Skills Manager: Revert to Repository Version… | Restore a modified resource to its original upstream content |
+| AI Skills Manager: Copy Name for Chat | Copy the resource name with a configurable prefix to the clipboard |
 
 ## Skill Directory Structure
 

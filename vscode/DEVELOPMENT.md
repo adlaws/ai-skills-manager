@@ -4,9 +4,9 @@ This document covers everything you need to build, test, debug, and package the 
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org/) 22.x (LTS) or later
-- [VS Code](https://code.visualstudio.com/) 1.107.0 or later
-- Git
+* [Node.js](https://nodejs.org/) 22.x (LTS) or later
+* [VS Code](https://code.visualstudio.com/) 1.107.0 or later
+* Git
 
 ## Getting Started
 
@@ -51,7 +51,7 @@ ai-skills-manager/
     │   ├── installCommands.ts        # Install, uninstall, update commands
     │   ├── localCommands.ts          # Local collection commands
     │   ├── managementCommands.ts     # Move, copy, create, pack, validate, config, contribute
-    │   └── marketplaceCommands.ts    # Search, favorites, tags, status bar, refresh, preview
+    │   └── marketplaceCommands.ts    # Search, favorites, tags, status bar, refresh, preview, copy name
     ├── github/
     │   └── resourceClient.ts         # GitHub API client (Contents + Trees APIs)
     ├── services/
@@ -95,7 +95,7 @@ ai-skills-manager/
 | `views/installedProvider.ts` | Two-level `TreeDataProvider` (Category → Installed Resource). Scans configured + well-known directories on disk (both local and global). Skills are recognised by the presence of `SKILL.md`. Each item shows its scope (Global/Workspace) and uses scope-specific context values for menu control. Tracks install metadata and shows update badges on resources with available upstream changes. |
 | `views/resourceDetailPanel.ts` | Webview panel that renders resource details with `markdown-it`. Shows metadata, install/remove buttons, and a "View Source" link. Also supports viewing details for installed and local collection resources by reading content from disk. Auto-refreshes install status when the panel becomes visible. Shows update badges and an "Update" button when upstream changes are available. |
 | `commands/commandContext.ts` | Defines the `CommandContext` interface — shared context passed to all command registration modules, providing access to services, providers, and helper functions. |
-| `commands/marketplaceCommands.ts` | Registers marketplace commands: search, favorites, tag filtering, status bar quick-pick menu, refresh (all or single repo), preview, and view-details. |
+| `commands/marketplaceCommands.ts` | Registers marketplace commands: search, favorites, tag filtering, status bar quick-pick menu, refresh (all or single repo), preview, view-details, and copy name for chat. |
 | `commands/installCommands.ts` | Registers install/uninstall commands: install (local and global), uninstall (single and bulk), check for updates, update single resource, and update all. |
 | `commands/managementCommands.ts` | Registers management commands: move scope, copy to local collection, open resource, create from template, pack install/create, validate, config export/import, usage detection, repository management, propose changes, revert, and suggest addition. |
 | `commands/localCommands.ts` | Registers local collection commands: install from local (both scopes), search/clear, open resource, delete resource, view details, disconnect/add/manage collections, and refresh. |
@@ -129,8 +129,8 @@ npm run watch
 ```
 
 This starts two parallel watchers:
-- **esbuild** — incrementally re-bundles `dist/extension.js` on every source change
-- **tsc** — runs the TypeScript compiler in watch mode (type-check only, no emit) so you get real-time error feedback
+* **esbuild** — incrementally re-bundles `dist/extension.js` on every source change
+* **tsc** — runs the TypeScript compiler in watch mode (type-check only, no emit) so you get real-time error feedback
 
 When you press **F5** in VS Code, the default build task (`npm run watch`) is started automatically before the Extension Development Host launches (configured in `.vscode/tasks.json`).
 
@@ -161,9 +161,9 @@ Runs ESLint against `src/`.
 5. Set breakpoints in any file under `src/`; the debugger will hit them
 
 This uses the launch configuration in `.vscode/launch.json`, which:
-- Starts the Extension Development Host at `--extensionDevelopmentPath=${workspaceFolder}`
-- Maps source files via the `dist/**/*.js` source maps
-- Runs the default build task (`npm run watch`) first, so the bundle is always fresh
+* Starts the Extension Development Host at `--extensionDevelopmentPath=${workspaceFolder}`
+* Maps source files via the `dist/**/*.js` source maps
+* Runs the default build task (`npm run watch`) first, so the bundle is always fresh
 
 ### Option 2: Manual
 
@@ -178,7 +178,7 @@ code --extensionDevelopmentPath="$(pwd)"
 ### Reload during development
 
 While the Extension Development Host is running:
-- **Ctrl+Shift+P** → "Developer: Reload Window" picks up the latest bundle without restarting the debug session (as long as `npm run watch` is running)
+* **Ctrl+Shift+P** → "Developer: Reload Window" picks up the latest bundle without restarting the debug session (as long as `npm run watch` is running)
 
 ## Testing
 
@@ -300,9 +300,9 @@ code \
 ```
 
 This opens a fresh VS Code window with:
-- **No other extensions** loaded (clean `--extensions-dir`)
-- **No existing settings, keybindings, or state** (clean `--user-data-dir`)
-- Only the AI Skills Manager extension installed
+* **No other extensions** loaded (clean `--extensions-dir`)
+* **No existing settings, keybindings, or state** (clean `--user-data-dir`)
+* Only the AI Skills Manager extension installed
 
 To revert completely — remove every trace as if nothing happened:
 
@@ -355,18 +355,18 @@ See the [VS Code publishing docs](https://code.visualstudio.com/api/working-with
 
 The `.vscodeignore` file controls what is excluded. Currently excluded:
 
-- Source files (`src/`, `out/`, `*.ts`, `*.map`)
-- Dev config (`.vscode/`, `.vscode-test/`, `.vscode-test.mjs`, `tsconfig.json`, `esbuild.js`, `eslint.config.mjs`)
-- Dev docs (`DEVELOPMENT.md`, `.github/`)
-- Dependencies (`node_modules/`)
-- Lock file (`package-lock.json`)
+* Source files (`src/`, `out/`, `*.ts`, `*.map`)
+* Dev config (`.vscode/`, `.vscode-test/`, `.vscode-test.mjs`, `tsconfig.json`, `esbuild.js`, `eslint.config.mjs`)
+* Dev docs (`DEVELOPMENT.md`, `.github/`)
+* Dependencies (`node_modules/`)
+* Lock file (`package-lock.json`)
 
 The VSIX will contain:
-- `dist/extension.js` — the bundled extension (all dependencies inlined by esbuild)
-- `package.json` — the extension manifest
-- `resources/` — icons (`logo.png`, `skills-icon.svg`)
-- `README.md`
-- `LICENSE`
+* `dist/extension.js` — the bundled extension (all dependencies inlined by esbuild)
+* `package.json` — the extension manifest
+* `resources/` — icons (`logo.png`, `skills-icon.svg`)
+* `README.md`
+* `LICENSE`
 
 ## Configuration Reference (for development)
 
@@ -388,6 +388,7 @@ These settings affect the extension at runtime. During development in the Extens
 | `aiSkillsManager.localCollections` | array | `[]` | Local folders to browse for AI resources |
 | `aiSkillsManager.localCollectionWatchInterval` | number | `30` | Interval (seconds) to check for new/deleted collection folders (min 5, max 300) |
 | `aiSkillsManager.githubToken` | string | `""` | GitHub PAT for higher rate limits |
+| `aiSkillsManager.copyNamePrefix` | string | `/` | Prefix when copying a resource name for chat |
 | `aiSkillsManager.cacheTimeout` | number | `3600` | Cache TTL in seconds |
 
 ## Troubleshooting
@@ -395,17 +396,17 @@ These settings affect the extension at runtime. During development in the Extens
 ### "rate limit exceeded" errors
 
 The GitHub API allows 60 requests/hour unauthenticated. To increase this:
-- Set `aiSkillsManager.githubToken` to a [personal access token](https://github.com/settings/tokens) with `public_repo` scope, **or**
-- Sign in to GitHub via VS Code's built-in authentication (the extension picks it up automatically)
+* Set `aiSkillsManager.githubToken` to a [personal access token](https://github.com/settings/tokens) with `public_repo` scope, **or**
+* Sign in to GitHub via VS Code's built-in authentication (the extension picks it up automatically)
 
 ### Extension doesn't appear in the Activity Bar
 
-- Make sure the build succeeded (`npm run compile` with no errors)
-- Check the Extension Development Host's **Output** panel → "AI Skills Manager" channel for errors
-- Verify `dist/extension.js` exists
+* Make sure the build succeeded (`npm run compile` with no errors)
+* Check the Extension Development Host's **Output** panel → "AI Skills Manager" channel for errors
+* Verify `dist/extension.js` exists
 
 ### Tests fail to start
 
-- Ensure `out/test/*.test.js` files exist — run `npm run compile-tests`
-- If VS Code download fails, check your network and delete `.vscode-test/` to force a fresh download
-- The test runner requires a display. On headless Linux, use `xvfb-run npm test`
+* Ensure `out/test/*.test.js` files exist — run `npm run compile-tests`
+* If VS Code download fails, check your network and delete `.vscode-test/` to force a fresh download
+* The test runner requires a display. On headless Linux, use `xvfb-run npm test`
