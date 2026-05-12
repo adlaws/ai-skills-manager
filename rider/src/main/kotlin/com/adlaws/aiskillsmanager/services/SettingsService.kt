@@ -35,6 +35,7 @@ class SettingsService : PersistentStateComponent<SettingsService.State> {
         var branch: String = "main",
         var skillsPath: String? = null,
         var singleSkill: Boolean = false,
+        var nestedSkills: Boolean = false,
         var enabled: Boolean = true,
         var label: String? = null
     )
@@ -71,7 +72,7 @@ class SettingsService : PersistentStateComponent<SettingsService.State> {
     // ---- Read methods ----
 
     fun getRepositories(): List<ResourceRepository> = state.repositories.map {
-        ResourceRepository(it.owner, it.repo, it.branch, it.skillsPath, it.singleSkill, it.enabled, it.label)
+        ResourceRepository(it.owner, it.repo, it.branch, it.skillsPath, it.singleSkill, it.nestedSkills, it.enabled, it.label)
     }
 
     fun getLocalCollections(): List<LocalCollection> = state.localCollections.map {
@@ -95,9 +96,10 @@ class SettingsService : PersistentStateComponent<SettingsService.State> {
     // ---- Mutation methods ----
 
     fun addRepository(owner: String, repo: String, branch: String = "main",
-                      skillsPath: String? = null, singleSkill: Boolean = false, label: String? = null) {
+                      skillsPath: String? = null, singleSkill: Boolean = false,
+                      nestedSkills: Boolean = false, label: String? = null) {
         if (state.repositories.any { it.owner == owner && it.repo == repo }) return
-        state.repositories.add(RepositoryState(owner, repo, branch, skillsPath, singleSkill, true, label))
+        state.repositories.add(RepositoryState(owner, repo, branch, skillsPath, singleSkill, nestedSkills, true, label))
         state.repositoriesInitialized = true
     }
 

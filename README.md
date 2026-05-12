@@ -51,9 +51,11 @@ cd rider
 Both extensions provide the same core functionality:
 
 * **Resource Marketplace** — Browse resources from multiple GitHub repositories
+* **Nested Skills** — Enable `nestedSkills` on a repository to discover skills organised into subfolders, displayed as collapsible groups in the marketplace tree
 * **Per-Repository Refresh** — Right-click a repository in the Marketplace to refresh just that repo without reloading everything
 * **Local Collections** — Browse resources from local folders on disk
 * **One-Click Install** — Install to workspace or globally
+* **Install All** — Right-click a category or skill group node to install all items underneath at once
 * **Global & Workspace Scopes** — Per-category configurable install locations
 * **Update Detection** — SHA-based comparison against upstream
 * **Diff Before Update** — Compare incoming and existing versions before overwriting

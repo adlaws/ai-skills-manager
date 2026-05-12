@@ -57,15 +57,15 @@ class ResourceClient {
 
     /**
      * Fetch all resources from all enabled repos.
-     * Returns a map of repoKey → (category → items), plus a set of failed repo keys.
+     * Returns a map of repoKey → (category → items), plus a map of failed repo keys → error messages.
      */
-    fun fetchAllResources(): Pair<Map<String, Map<ResourceCategory, List<ResourceItem>>>, Set<String>> {
+    fun fetchAllResources(): Pair<Map<String, Map<ResourceCategory, List<ResourceItem>>>, Map<String, String>> {
         syncSettings()
         val settings = SettingsService.getInstance()
         val repos = settings.getRepositories().filter { it.enabled }
         LOG.info("fetchAllResources: ${repos.size} enabled repos: ${repos.map { it.key }}")
         val results = ConcurrentHashMap<String, Map<ResourceCategory, List<ResourceItem>>>()
-        val failed = ConcurrentHashMap.newKeySet<String>()
+        val failed = ConcurrentHashMap<String, String>()
 
         // Fetch all repos in parallel
         val futures = repos.map { repo ->
@@ -79,14 +79,14 @@ class ResourceClient {
                     }
                 } catch (e: Exception) {
                     LOG.warn("  FAILED repo ${repo.key}: ${e.message}", e)
-                    failed.add(repo.key)
+                    failed[repo.key] = e.message ?: "Unknown error"
                 }
             }
         }
         // Wait for all repo fetches to complete
         futures.forEach { it.get() }
         LOG.info("fetchAllResources done: ${results.size} repos loaded, ${failed.size} failed")
-        return results.toMap() to failed.toSet()
+        return results.toMap() to failed.toMap()
     }
 
     /**
@@ -195,6 +195,16 @@ class ResourceClient {
         val futures = ResourceCategory.entries.map { category ->
             executor.submit {
                 try {
+                    // For nested skills, use Trees API for recursive SKILL.md discovery
+                    if (category == ResourceCategory.SKILLS && repo.nestedSkills) {
+                        val treesResult = fetchViaTreesApi(repo.copy(skillsPath = category.id))
+                        treesResult[ResourceCategory.SKILLS]?.let { items ->
+                            if (items.isNotEmpty()) {
+                                result[ResourceCategory.SKILLS] = items
+                            }
+                        }
+                        return@submit
+                    }
                     val url = "https://api.github.com/repos/${repo.owner}/${repo.repo}/contents/${category.id}?ref=${repo.branch}"
                     val json = httpGet(url) ?: return@submit
                     val items = parseContentsResponse(json, repo, category)
@@ -221,7 +231,8 @@ class ResourceClient {
         }
 
         val url = "https://api.github.com/repos/${repo.owner}/${repo.repo}/git/trees/${repo.branch}?recursive=1"
-        val json = httpGet(url) ?: return emptyMap()
+        val json = httpGet(url)
+            ?: throw RuntimeException("Branch '${repo.branch}' not found in ${repo.owner}/${repo.repo}. Check that the branch name is correct.")
         return parseTreeResponse(json, repo)
     }
 
@@ -314,6 +325,11 @@ class ResourceClient {
                         val content = fetchRawContent(repo.owner, repo.repo, repo.branch, skillMdPath)
                         val meta = if (content != null) parseSkillMd(content) else emptyMap()
 
+                        // Compute group from intermediate path segments between skillsPath and skill folder
+                        val relativePath = skillDirPath.removePrefix("$skillsPath/")
+                        val segments = relativePath.split('/')
+                        val group = if (segments.size > 1) segments.dropLast(1).joinToString("/") else null
+
                         ResourceItem(
                             name = meta["name"] ?: skillName,
                             category = ResourceCategory.SKILLS,
@@ -328,7 +344,8 @@ class ResourceClient {
                             tags = parseTags(meta["tags"]),
                             bodyContent = meta["body"],
                             fullContent = content,
-                            isFolder = true
+                            isFolder = true,
+                            group = group
                         )
                     } catch (_: Exception) {
                         null

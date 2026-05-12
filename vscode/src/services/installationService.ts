@@ -121,9 +121,7 @@ export class InstallationService {
                     // Non-critical — proceed without SHA
                 }
             }
-            if (item.file.sha) {
-                await this.saveInstallMetadata(item, scope, this._lastContentHash);
-            }
+            await this.saveInstallMetadata(item, scope, this._lastContentHash);
         }
 
         return result;

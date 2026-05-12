@@ -99,6 +99,8 @@ export interface ResourceRepository {
     skillsPath?: string;
     /** If true with skillsPath, the path points to a single skill folder. */
     singleSkill?: boolean;
+    /** If true, skills may be grouped in subfolders rather than directly under the skills folder. Uses Trees API for recursive discovery. */
+    nestedSkills?: boolean;
 }
 
 // ── GitHub file / item types ────────────────────────────────────
@@ -128,6 +130,8 @@ export interface ResourceItem {
     compatibility?: string;
     /** Tags/keywords for filtering (parsed from frontmatter). */
     tags?: string[];
+    /** Subfolder group path for nested skills (e.g. "engineering"). */
+    group?: string;
     bodyContent?: string;
     fullContent?: string;
 }

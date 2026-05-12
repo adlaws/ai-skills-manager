@@ -58,7 +58,12 @@ export class InstalledResourceTreeItem extends vscode.TreeItem {
             this.tooltip.appendMarkdown(`${resource.description}\n\n`);
         }
         this.tooltip.appendMarkdown(`*Scope: ${resource.scope === 'global' ? 'Global (home directory)' : 'Workspace'}*\n\n`);
-        this.tooltip.appendMarkdown(`*Location: ${resource.location}*`);
+        this.tooltip.appendMarkdown(`*Location: ${resource.location}*\n\n`);
+        if (resource.sourceRepo) {
+            this.tooltip.appendMarkdown(`*Source: [${resource.sourceRepo.owner}/${resource.sourceRepo.repo}](https://github.com/${resource.sourceRepo.owner}/${resource.sourceRepo.repo}/tree/${resource.sourceRepo.branch}/${resource.sourceRepo.filePath})*`);
+        } else {
+            this.tooltip.appendMarkdown(`*Source: Local (no linked repository)*`);
+        }
         if (hasUpdate) {
             this.tooltip.appendMarkdown(`\n\n$(cloud-download) **Update available** — a newer version exists in the source repository`);
         }
@@ -208,11 +213,23 @@ export class InstalledTreeDataProvider
     ): vscode.ProviderResult<InstalledItem[]> {
         if (element instanceof InstalledCategoryTreeItem) {
             return element.resources.map(
-                (r) => new InstalledResourceTreeItem(
-                    r,
-                    this.updatableNames.has(r.name),
-                    this.modifiedNames.has(r.name),
-                ),
+                (r) => {
+                    // Enrich resource with metadata (sourceRepo, sha) when available
+                    const meta = this.installMetadata.get(r.name);
+                    if (meta) {
+                        if (!r.sourceRepo && meta.sourceRepo) {
+                            r.sourceRepo = meta.sourceRepo;
+                        }
+                        if (!r.sha && meta.sha) {
+                            r.sha = meta.sha;
+                        }
+                    }
+                    return new InstalledResourceTreeItem(
+                        r,
+                        this.updatableNames.has(r.name),
+                        this.modifiedNames.has(r.name),
+                    );
+                },
             );
         }
 

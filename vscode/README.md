@@ -350,6 +350,10 @@ When multiple items are selected, right-click to see the available bulk actions.
 * **Install to Workspace** / **Install Globally** — Install all selected resources at once
 * **Toggle Favorite** — Add or remove favorites for all selected items (Marketplace only)
 
+**Category and Group Nodes** — Right-click a category node (e.g. "Skills") or a skill group subfolder to install everything underneath:
+* **Install All to Workspace** — Install all items in the category or group to the workspace
+* **Install All Globally** — Install all items in the category or group globally
+
 **Installed** — Bulk actions on selected installed resources:
 * **Remove** — Uninstall all selected resources (with a single confirmation prompt)
 * **Move to Global** / **Move to Workspace** — Move all selected resources between scopes
@@ -472,6 +476,8 @@ Two types of repositories are supported:
 1. **Full repos** — scan all category folders (chatmodes, instructions, prompts, agents, skills)
 2. **Skills repos** — specify a `skillsPath` to only scan for skills at that path
 
+For repos where skills are organised into subfolders (e.g. `skills/engineering/tdd/`, `skills/productivity/grill-me/`), enable `nestedSkills` to recursively discover all `SKILL.md` files at any depth. The marketplace tree will show the subfolder structure as collapsible groups. This works with both full repos and skills repos.
+
 Default repositories:
 
 | Repository | Type | Description |
@@ -497,7 +503,8 @@ Example configuration:
     "repo": "my-skills",
     "branch": "main",
     "enabled": true,
-    "skillsPath": "skills"
+    "skillsPath": "skills",
+    "nestedSkills": true
   }
 ]
 ```

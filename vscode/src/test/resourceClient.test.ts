@@ -235,7 +235,7 @@ suite('ResourceClient', () => {
             try {
                 const result = await client.fetchAllResources();
                 assert.ok(result.data instanceof Map, 'Expected data to be a Map');
-                assert.ok(result.failed instanceof Set, 'Expected failed to be a Set');
+                assert.ok(result.failed instanceof Map, 'Expected failed to be a Map');
             } catch {
                 // Network failure is acceptable in test environments
             }

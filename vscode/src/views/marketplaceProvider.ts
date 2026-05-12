@@ -83,6 +83,19 @@ export class CategoryTreeItem extends vscode.TreeItem {
     }
 }
 
+export class SkillGroupTreeItem extends vscode.TreeItem {
+    constructor(
+        public readonly groupName: string,
+        public readonly repo: ResourceRepository,
+        public readonly items: ResourceItem[],
+    ) {
+        super(groupName, vscode.TreeItemCollapsibleState.Collapsed);
+        this.iconPath = new vscode.ThemeIcon('folder-library');
+        this.description = `${items.length}`;
+        this.contextValue = 'skillGroup';
+    }
+}
+
 export class RepoTreeItem extends vscode.TreeItem {
     constructor(
         public readonly repo: ResourceRepository,
@@ -123,7 +136,7 @@ export class FavoritesTreeItem extends vscode.TreeItem {
 
 // ── Provider ────────────────────────────────────────────────────
 
-type MarketplaceItem = FavoritesTreeItem | RepoTreeItem | CategoryTreeItem | ResourceTreeItem;
+type MarketplaceItem = FavoritesTreeItem | RepoTreeItem | CategoryTreeItem | SkillGroupTreeItem | ResourceTreeItem;
 
 export class MarketplaceTreeDataProvider
     implements vscode.TreeDataProvider<MarketplaceItem>, vscode.Disposable {
@@ -142,7 +155,7 @@ export class MarketplaceTreeDataProvider
     private installedNames = new Set<string>();
     private isLoading = false;
     private isRefreshing = false;
-    private failedRepos = new Set<string>();
+    private failedRepos = new Map<string, string>();
     /** Pre-computed filtered view of repoData, rebuilt when query/tag/data changes. */
     private filteredRepoData = new Map<string, Map<ResourceCategory, ResourceItem[]>>();
     /** Cached filtered favorite item count (rebuilt with filteredRepoData). */
@@ -197,10 +210,11 @@ export class MarketplaceTreeDataProvider
             this.repoData.set(repoKey, repoData);
             this.failedRepos.delete(repoKey);
         } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
             console.error(`Failed to refresh repo ${repoKey}:`, error);
             this.repoData.delete(repoKey);
-            this.failedRepos.add(repoKey);
-            vscode.window.showErrorMessage(`Failed to refresh ${repoKey}.`);
+            this.failedRepos.set(repoKey, msg);
+            vscode.window.showErrorMessage(`Failed to refresh ${repoKey}: ${msg}`);
         }
 
         this.rebuildFilteredData();
@@ -396,13 +410,13 @@ export class MarketplaceTreeDataProvider
             children.push(...repoChildren);
 
             if (this.failedRepos.size > 0) {
-                for (const repoKey of this.failedRepos) {
+                for (const [repoKey, errorMsg] of this.failedRepos) {
                     const failedItem = new vscode.TreeItem(
                         `${repoKey} (failed to load)`,
                         vscode.TreeItemCollapsibleState.None,
                     );
                     failedItem.iconPath = new vscode.ThemeIcon('warning');
-                    failedItem.tooltip = `Failed to fetch resources from ${repoKey}. This is usually caused by GitHub API rate limiting. Try signing in to GitHub or setting a personal access token.`;
+                    failedItem.tooltip = errorMsg;
                     failedItem.contextValue = 'failedRepo';
                     children.push(failedItem as unknown as MarketplaceItem);
                 }
@@ -444,7 +458,47 @@ export class MarketplaceTreeDataProvider
         }
 
         if (element instanceof CategoryTreeItem) {
+            // Check if any items have groups — if so, group them
+            const hasGroups = element.items.some((item) => item.group);
+            if (hasGroups) {
+                const groups = new Map<string, ResourceItem[]>();
+                const ungrouped: ResourceItem[] = [];
+                for (const item of element.items) {
+                    if (item.group) {
+                        const existing = groups.get(item.group);
+                        if (existing) {
+                            existing.push(item);
+                        } else {
+                            groups.set(item.group, [item]);
+                        }
+                    } else {
+                        ungrouped.push(item);
+                    }
+                }
+                const children: MarketplaceItem[] = [];
+                // Sort groups alphabetically
+                const sortedGroups = [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
+                for (const [groupName, items] of sortedGroups) {
+                    children.push(new SkillGroupTreeItem(groupName, element.repo, items));
+                }
+                // Ungrouped items after groups
+                for (const item of ungrouped) {
+                    children.push(new ResourceTreeItem(item, this.installedNames.has(item.name)));
+                }
+                return children;
+            }
+
             // Third level: resource items (already filtered via pre-computed data)
+            return element.items.map(
+                (item) =>
+                    new ResourceTreeItem(
+                        item,
+                        this.installedNames.has(item.name),
+                    ),
+            );
+        }
+
+        if (element instanceof SkillGroupTreeItem) {
             return element.items.map(
                 (item) =>
                     new ResourceTreeItem(

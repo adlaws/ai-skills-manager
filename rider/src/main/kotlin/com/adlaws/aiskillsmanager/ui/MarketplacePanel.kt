@@ -56,7 +56,7 @@ class MarketplacePanel(private val project: Project) {
 
     // Data state
     private var allData: Map<String, Map<ResourceCategory, List<ResourceItem>>> = emptyMap()
-    private var failedRepos: Set<String> = emptySet()
+    private var failedRepos: Map<String, String> = emptyMap()
     private var searchQuery: String = ""
     private var tagFilter: String? = null
     private var installedNames: Set<String> = emptySet()
@@ -177,7 +177,7 @@ class MarketplacePanel(private val project: Project) {
                     resourceClient.clearCacheForRepo(repoKey)
                     val repoData = resourceClient.fetchResources(repo)
                     val mutableData = allData.toMutableMap()
-                    val mutableFailed = failedRepos.toMutableSet()
+                    val mutableFailed = failedRepos.toMutableMap()
                     if (repoData.isNotEmpty()) {
                         mutableData[repoKey] = repoData
                     } else {
@@ -189,9 +189,9 @@ class MarketplacePanel(private val project: Project) {
                 } catch (e: Exception) {
                     LOG.warn("Failed to refresh repo $repoKey", e)
                     val mutableData = allData.toMutableMap()
-                    val mutableFailed = failedRepos.toMutableSet()
+                    val mutableFailed = failedRepos.toMutableMap()
                     mutableData.remove(repoKey)
-                    mutableFailed.add(repoKey)
+                    mutableFailed[repoKey] = e.message ?: "Unknown error"
                     allData = mutableData
                     failedRepos = mutableFailed
                 }
@@ -299,8 +299,33 @@ class MarketplacePanel(private val project: Project) {
                 if (filtered.isEmpty()) continue
 
                 val catNode = DefaultMutableTreeNode(CategoryNodeData(category, filtered.size))
-                for (item in filtered) {
-                    catNode.add(DefaultMutableTreeNode(ResourceNodeData(item, installedNames.contains(item.name))))
+
+                // Check if any items have groups — if so, group them
+                val hasGroups = filtered.any { it.group != null }
+                if (hasGroups) {
+                    val groups = linkedMapOf<String, MutableList<ResourceItem>>()
+                    val ungrouped = mutableListOf<ResourceItem>()
+                    for (item in filtered) {
+                        if (item.group != null) {
+                            groups.getOrPut(item.group) { mutableListOf() }.add(item)
+                        } else {
+                            ungrouped.add(item)
+                        }
+                    }
+                    for ((groupName, groupItems) in groups.toSortedMap()) {
+                        val groupNode = DefaultMutableTreeNode(SkillGroupNodeData(groupName, groupItems.size))
+                        for (item in groupItems) {
+                            groupNode.add(DefaultMutableTreeNode(ResourceNodeData(item, installedNames.contains(item.name))))
+                        }
+                        catNode.add(groupNode)
+                    }
+                    for (item in ungrouped) {
+                        catNode.add(DefaultMutableTreeNode(ResourceNodeData(item, installedNames.contains(item.name))))
+                    }
+                } else {
+                    for (item in filtered) {
+                        catNode.add(DefaultMutableTreeNode(ResourceNodeData(item, installedNames.contains(item.name))))
+                    }
                 }
                 repoNode.add(catNode)
             }
@@ -311,8 +336,8 @@ class MarketplacePanel(private val project: Project) {
         }
 
         // Failed repos
-        for (repoKey in failedRepos) {
-            rootNode.add(DefaultMutableTreeNode(FailedRepoNodeData(repoKey)))
+        for ((repoKey, errorMsg) in failedRepos) {
+            rootNode.add(DefaultMutableTreeNode(FailedRepoNodeData(repoKey, errorMsg)))
         }
 
         treeModel.reload()
@@ -350,6 +375,41 @@ class MarketplacePanel(private val project: Project) {
                 addActionListener { refreshRepo(repoNodeData.key) }
             })
             menu.show(tree, e.x, e.y)
+            return
+        }
+
+        // Check if clicked on a category or skill group node — offer "Install All"
+        val nodeData = clickedNode?.userObject
+        if (nodeData is CategoryNodeData || nodeData is SkillGroupNodeData) {
+            val childItems = mutableListOf<ResourceItem>()
+            for (i in 0 until (clickedNode?.childCount ?: 0)) {
+                val child = clickedNode?.getChildAt(i) as? DefaultMutableTreeNode ?: continue
+                // Collect items from direct children and from nested group nodes
+                when (val childData = child.userObject) {
+                    is ResourceNodeData -> childItems.add(childData.resourceItem)
+                    is SkillGroupNodeData -> {
+                        for (j in 0 until child.childCount) {
+                            val grandChild = child.getChildAt(j) as? DefaultMutableTreeNode ?: continue
+                            (grandChild.userObject as? ResourceNodeData)?.let { childItems.add(it.resourceItem) }
+                        }
+                    }
+                }
+            }
+            if (childItems.isNotEmpty()) {
+                val label = when (nodeData) {
+                    is CategoryNodeData -> nodeData.category.label
+                    is SkillGroupNodeData -> nodeData.groupName
+                    else -> "items"
+                }
+                val menu = JPopupMenu()
+                menu.add(JMenuItem("Install All ${childItems.size} $label to Workspace").apply {
+                    addActionListener { installMultipleItems(childItems, InstallScope.WORKSPACE) }
+                })
+                menu.add(JMenuItem("Install All ${childItems.size} $label Globally").apply {
+                    addActionListener { installMultipleItems(childItems, InstallScope.GLOBAL) }
+                })
+                menu.show(tree, e.x, e.y)
+            }
             return
         }
 
@@ -433,6 +493,40 @@ class MarketplacePanel(private val project: Project) {
                     } else {
                         com.intellij.openapi.ui.Messages.showErrorDialog(
                             project, "Failed to install '${item.name}'.", "Install Failed"
+                        )
+                    }
+                }
+            }
+        })
+    }
+
+    private fun installMultipleItems(items: List<ResourceItem>, scope: InstallScope) {
+        val scopeLabel = if (scope == InstallScope.GLOBAL) "globally" else "to workspace"
+        ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Installing ${items.size} items $scopeLabel…", true) {
+            override fun run(indicator: ProgressIndicator) {
+                indicator.isIndeterminate = false
+                val projectService = ProjectService.getInstance(project)
+                val installService = InstallationService(resourceClient, projectService)
+                var installed = 0
+                var failed = 0
+                for ((i, item) in items.withIndex()) {
+                    if (indicator.isCanceled) break
+                    indicator.fraction = (i + 1).toDouble() / items.size
+                    indicator.text = "${item.name} (${i + 1}/${items.size})"
+                    if (installService.installResource(item, scope)) {
+                        installed++
+                    } else {
+                        failed++
+                    }
+                }
+                ApplicationManager.getApplication().invokeLater {
+                    if (failed > 0) {
+                        com.intellij.openapi.ui.Messages.showWarningDialog(
+                            project, "Installed $installed, $failed failed.", "Install Complete"
+                        )
+                    } else {
+                        com.intellij.openapi.ui.Messages.showInfoMessage(
+                            project, "Successfully installed $installed item${if (installed != 1) "s" else ""}.", "Install Complete"
                         )
                     }
                 }
@@ -633,8 +727,12 @@ class MarketplacePanel(private val project: Project) {
         override fun toString(): String = "$label ($count)"
     }
 
-    data class FailedRepoNodeData(val key: String) {
+    data class FailedRepoNodeData(val key: String, val errorMessage: String = "") {
         override fun toString(): String = "⚠ $key (failed to load)"
+    }
+
+    data class SkillGroupNodeData(val groupName: String, val count: Int) {
+        override fun toString(): String = "$groupName ($count)"
     }
 
     // ---- Cell renderer ----
@@ -675,6 +773,12 @@ class MarketplacePanel(private val project: Project) {
                 is FailedRepoNodeData -> {
                     append("⚠ ${data.key}", SimpleTextAttributes.ERROR_ATTRIBUTES)
                     append(" (failed to load)", SimpleTextAttributes.GRAYED_ATTRIBUTES)
+                    toolTipText = data.errorMessage.ifBlank { "Failed to fetch resources from ${data.key}" }
+                    icon = null
+                }
+                is SkillGroupNodeData -> {
+                    append(data.groupName, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
+                    append(" (${data.count})", SimpleTextAttributes.GRAYED_ATTRIBUTES)
                     icon = null
                 }
             }

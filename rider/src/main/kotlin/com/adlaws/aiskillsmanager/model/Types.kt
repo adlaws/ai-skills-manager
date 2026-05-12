@@ -32,6 +32,7 @@ data class ResourceRepository(
     val branch: String = "main",
     val skillsPath: String? = null,
     val singleSkill: Boolean = false,
+    val nestedSkills: Boolean = false,
     val enabled: Boolean = true,
     val label: String? = null
 ) {
@@ -57,6 +58,8 @@ data class ResourceItem(
     val isFolder: Boolean = false,
     val bodyContent: String? = null,
     val fullContent: String? = null,
+    /** Subfolder group path for nested skills (e.g. "engineering"). */
+    val group: String? = null,
     /** Source local collection path, if this item came from a local collection */
     val localCollectionPath: String? = null
 )

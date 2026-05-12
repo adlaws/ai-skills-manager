@@ -5,8 +5,8 @@
 
 import * as vscode from 'vscode';
 import { CommandContext } from './commandContext';
-import { ResourceItem, InstalledResource } from '../types';
-import { ResourceTreeItem } from '../views/marketplaceProvider';
+import { ResourceItem, InstalledResource, CATEGORY_LABELS } from '../types';
+import { ResourceTreeItem, CategoryTreeItem, SkillGroupTreeItem } from '../views/marketplaceProvider';
 import { InstalledResourceTreeItem } from '../views/installedProvider';
 
 export function registerInstallCommands(
@@ -244,6 +244,78 @@ export function registerInstallCommands(
                         `Successfully updated ${updated} resource${updated !== 1 ? 's' : ''}.`,
                     );
                 }
+            },
+        ),
+
+        // Install all items in a category or skill group (to workspace)
+        vscode.commands.registerCommand(
+            'aiSkillsManager.installAllToWorkspace',
+            async (clicked: CategoryTreeItem | SkillGroupTreeItem) => {
+                const items = clicked.items;
+                if (items.length === 0) { return; }
+
+                const label = clicked instanceof SkillGroupTreeItem
+                    ? clicked.groupName
+                    : CATEGORY_LABELS[clicked.category];
+
+                const confirm = await vscode.window.showInformationMessage(
+                    `Install all ${items.length} ${label} item${items.length > 1 ? 's' : ''} to workspace?`,
+                    { modal: true },
+                    `Install All ${items.length}`,
+                );
+                if (!confirm) { return; }
+
+                let anySuccess = false;
+                ctx.installationService.beginMetadataBatch();
+                await vscode.window.withProgress(
+                    { location: vscode.ProgressLocation.Notification, title: `Installing ${label}…`, cancellable: true },
+                    async (progress, token) => {
+                        for (let i = 0; i < items.length; i++) {
+                            if (token.isCancellationRequested) { break; }
+                            progress.report({ message: `${items[i].name} (${i + 1}/${items.length})`, increment: (1 / items.length) * 100 });
+                            const ok = await ctx.installationService.installResource(items[i], 'local');
+                            if (ok) { anySuccess = true; }
+                        }
+                    },
+                );
+                await ctx.installationService.flushMetadataBatch();
+                if (anySuccess) { await ctx.syncInstalledStatus(); }
+            },
+        ),
+
+        // Install all items in a category or skill group (globally)
+        vscode.commands.registerCommand(
+            'aiSkillsManager.installAllGlobally',
+            async (clicked: CategoryTreeItem | SkillGroupTreeItem) => {
+                const items = clicked.items;
+                if (items.length === 0) { return; }
+
+                const label = clicked instanceof SkillGroupTreeItem
+                    ? clicked.groupName
+                    : CATEGORY_LABELS[clicked.category];
+
+                const confirm = await vscode.window.showInformationMessage(
+                    `Install all ${items.length} ${label} item${items.length > 1 ? 's' : ''} globally?`,
+                    { modal: true },
+                    `Install All ${items.length}`,
+                );
+                if (!confirm) { return; }
+
+                let anySuccess = false;
+                ctx.installationService.beginMetadataBatch();
+                await vscode.window.withProgress(
+                    { location: vscode.ProgressLocation.Notification, title: `Installing ${label} globally…`, cancellable: true },
+                    async (progress, token) => {
+                        for (let i = 0; i < items.length; i++) {
+                            if (token.isCancellationRequested) { break; }
+                            progress.report({ message: `${items[i].name} (${i + 1}/${items.length})`, increment: (1 / items.length) * 100 });
+                            const ok = await ctx.installationService.installResource(items[i], 'global');
+                            if (ok) { anySuccess = true; }
+                        }
+                    },
+                );
+                await ctx.installationService.flushMetadataBatch();
+                if (anySuccess) { await ctx.syncInstalledStatus(); }
             },
         ),
     ];

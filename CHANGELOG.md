@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.9
+
+### New Features
+
+* **Nested Skills Discovery** — Enable `nestedSkills` on a repository to recursively discover skills organised into subfolders (e.g. `skills/engineering/tdd/`, `skills/productivity/grill-me/`). Works with both full repos and skills-only repos. Uses the Git Trees API to find all `SKILL.md` files at any depth.
+* **Skill Group Display** — When `nestedSkills` is enabled, the marketplace tree shows subfolder structure as collapsible group nodes (Repo → Category → Group → Skill), preserving the repository's folder organisation.
+* **Install All** — Right-click a category node or skill group node in the Marketplace tree to install all items underneath at once, either to the workspace or globally.
+* **Source Repository in Installed Tooltips** — Installed resource tooltips now show the source repository (with a clickable link in VS Code) or "Local (no linked repository)" for resources without source metadata.
+
+### Improvements
+
+* **Better Error Messaging for Failed Repos** — When a repository fails to load (e.g. wrong branch name), the error tooltip now shows the specific reason instead of a generic message. Branch-not-found errors explicitly mention the configured branch name.
+
+### Internal
+
+* Removed development `console.log` from extension activation.
+
 ## 0.1.8
 
 ### New Features

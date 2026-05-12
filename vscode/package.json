@@ -2,7 +2,7 @@
     "name": "ai-skills-manager",
     "displayName": "AI Skills Manager",
     "description": "One-stop-shop for discovering, installing, and managing AI development resources \u2013 Chat Modes, Instructions, Prompts, Agents, and Skills \u2013 from GitHub repositories with customizable install locations",
-    "version": "0.1.8",
+    "version": "0.1.9",
     "icon": "resources/logo.png",
     "publisher": "adlaws",
     "engines": {
@@ -134,6 +134,18 @@
             {
                 "command": "aiSkillsManager.installGlobally",
                 "title": "Install Globally",
+                "icon": "$(home)",
+                "category": "AI Skills Manager"
+            },
+            {
+                "command": "aiSkillsManager.installAllToWorkspace",
+                "title": "Install All to Workspace",
+                "icon": "$(cloud-download)",
+                "category": "AI Skills Manager"
+            },
+            {
+                "command": "aiSkillsManager.installAllGlobally",
+                "title": "Install All Globally",
                 "icon": "$(home)",
                 "category": "AI Skills Manager"
             },
@@ -432,6 +444,26 @@
                     "group": "3_contribute@1"
                 },
                 {
+                    "command": "aiSkillsManager.installAllToWorkspace",
+                    "when": "view == aiSkillsManager.marketplace && (viewItem == skillGroup || viewItem == category)",
+                    "group": "inline@1"
+                },
+                {
+                    "command": "aiSkillsManager.installAllGlobally",
+                    "when": "view == aiSkillsManager.marketplace && (viewItem == skillGroup || viewItem == category)",
+                    "group": "inline@2"
+                },
+                {
+                    "command": "aiSkillsManager.installAllToWorkspace",
+                    "when": "view == aiSkillsManager.marketplace && (viewItem == skillGroup || viewItem == category)",
+                    "group": "navigation@1"
+                },
+                {
+                    "command": "aiSkillsManager.installAllGlobally",
+                    "when": "view == aiSkillsManager.marketplace && (viewItem == skillGroup || viewItem == category)",
+                    "group": "navigation@2"
+                },
+                {
                     "command": "aiSkillsManager.refreshRepo",
                     "when": "view == aiSkillsManager.marketplace && viewItem == repo",
                     "group": "inline@1"
@@ -668,6 +700,11 @@
                                 "type": "boolean",
                                 "default": false,
                                 "description": "If true with skillsPath, the path points directly to a single skill folder"
+                            },
+                            "nestedSkills": {
+                                "type": "boolean",
+                                "default": false,
+                                "description": "If true, skills may be grouped in subfolders rather than directly under the skills folder. Enables recursive scanning via the Git Trees API."
                             }
                         },
                         "required": [

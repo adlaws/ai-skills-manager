@@ -117,7 +117,6 @@ async function buildResourceItemFromInstalled(
 }
 
 export function activate(context: vscode.ExtensionContext) {
-    console.log('AI Skills Manager extension is now active!');
 
     // ── Services ────────────────────────────────────────────────
     const resourceClient = new ResourceClient(context);

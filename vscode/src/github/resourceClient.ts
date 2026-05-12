@@ -38,7 +38,7 @@ export class ResourceClient {
      */
     async fetchAllResources(): Promise<{
         data: Map<string, Map<ResourceCategory, ResourceItem[]>>;
-        failed: Set<string>;
+        failed: Map<string, string>;
         enrichmentComplete: Promise<void>;
     }> {
         const config = vscode.workspace.getConfiguration('aiSkillsManager');
@@ -46,7 +46,7 @@ export class ResourceClient {
         const enabledRepos = repos.filter((r) => r.enabled !== false);
 
         const data = new Map<string, Map<ResourceCategory, ResourceItem[]>>();
-        const failed = new Set<string>();
+        const failed = new Map<string, string>();
         this.pendingEnrichments = [];
 
         await vscode.window.withProgress(
@@ -60,31 +60,26 @@ export class ResourceClient {
                     }),
                 );
 
-                for (const result of results) {
+                for (let i = 0; i < results.length; i++) {
+                    const result = results[i];
+                    const key = this.repoKey(enabledRepos[i]);
                     if (result.status === 'fulfilled') {
                         data.set(result.value.key, result.value.repoData);
                     } else {
                         const msg = result.reason instanceof Error ? result.reason.message : String(result.reason);
-                        // Extract repo key from the error context
-                        console.warn(`Failed to fetch repo: ${msg}`);
+                        console.warn(`Failed to fetch repo ${key}: ${msg}`);
+                        failed.set(key, msg);
                     }
                 }
             },
         );
 
-        // Identify failed repos by diffing enabledRepos against loaded data
-        for (const repo of enabledRepos) {
-            const key = this.repoKey(repo);
-            if (!data.has(key)) {
-                failed.add(key);
-            }
-        }
-
         if (failed.size > 0) {
-            const names = [...failed].join(', ');
+            const details = [...failed.entries()].map(([k, v]) => `${k}: ${v}`).join('\n');
             vscode.window.showWarningMessage(
-                `Failed to load ${failed.size} repo(s): ${names}. Check your network or GitHub token.`,
+                `Failed to load ${failed.size} repo(s). See tooltip on failed items for details.`,
             );
+            console.warn(`Failed repos:\n${details}`);
         }
 
         const enrichmentComplete = Promise.allSettled(this.pendingEnrichments).then(() => { });
@@ -110,6 +105,11 @@ export class ResourceClient {
             // Full repo → scan all category folders via Contents API
             const results = await Promise.allSettled(
                 ALL_CATEGORIES.map(async (category) => {
+                    // For nested skills, use Trees API for recursive SKILL.md discovery
+                    if (category === ResourceCategory.Skills && repo.nestedSkills) {
+                        const items = await this.fetchSkillsViaTreesApi(repo);
+                        return { category, items };
+                    }
                     const items = await this.fetchCategoryContents(repo, category);
                     return { category, items };
                 }),
@@ -448,7 +448,7 @@ export class ResourceClient {
         const items = await Promise.all(
             skillPaths.map(async (skillPath) => {
                 try {
-                    return await this.fetchSkillMetadata(repo, skillPath);
+                    return await this.fetchSkillMetadata(repo, skillPath, basePath);
                 } catch (error) {
                     console.warn(`Failed to parse skill at ${skillPath}:`, error);
                     return null;
@@ -474,6 +474,7 @@ export class ResourceClient {
     private async fetchSkillMetadata(
         repo: ResourceRepository,
         skillPath: string,
+        basePath?: string,
     ): Promise<ResourceItem | null> {
         const skillMdPath = `${skillPath}/SKILL.md`;
         try {
@@ -485,6 +486,17 @@ export class ResourceClient {
             );
             const parsed = parseFrontmatter(content);
             const skillName = skillPath.split('/').pop() || skillPath;
+
+            // Compute group from intermediate path segments between basePath and skill folder
+            let group: string | undefined;
+            if (basePath) {
+                const relativePath = skillPath.substring(basePath.length + 1); // e.g. "engineering/diagnose"
+                const segments = relativePath.split('/');
+                if (segments.length > 1) {
+                    // Everything except the last segment (skill folder name) is the group
+                    group = segments.slice(0, -1).join('/');
+                }
+            }
 
             return {
                 id: `skill-${repo.owner}-${repo.repo}-${skillName}`,
@@ -503,6 +515,7 @@ export class ResourceClient {
                 license: parsed.license,
                 compatibility: parsed.compatibility,
                 tags: parsed.tags,
+                group,
                 fullContent: content,
                 bodyContent: parsed.body,
             };
@@ -524,6 +537,11 @@ export class ResourceClient {
         const response = await this.fetchWithAuth(url);
 
         if (!response.ok) {
+            if (response.status === 404) {
+                throw new Error(
+                    `Branch '${repo.branch}' not found in ${repo.owner}/${repo.repo}. Check that the branch name is correct.`,
+                );
+            }
             throw new Error(
                 `GitHub API error: ${response.status} ${response.statusText}`,
             );

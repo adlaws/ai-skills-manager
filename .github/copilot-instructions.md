@@ -5,12 +5,13 @@
 * The extension/plugin is a one-stop-shop for discovering, installing, and managing AI development resources: Chat Modes, Instructions, Prompts, Agents, and Skills.
 * Resources are categorised by `ResourceCategory` enum: `chatmodes`, `instructions`, `prompts`, `agents`, `skills`.
 * Two repository modes: "Full repo" (scans category folders) and "Skills repo" (uses `skillsPath` for Git Trees API).
+* The `nestedSkills` boolean flag enables recursive discovery of skills grouped in subfolders. Works with both Full repo and Skills repo modes — uses the Git Trees API to find all `SKILL.md` files at any depth under the skills folder, treating each parent directory as a skill.
 
 ## VS Code Extension (`vscode/`)
 
 * Written in TypeScript, bundled with esbuild.
 * Key architecture: Activity Bar view container with three tree views (Marketplace, Local Collections, Installed), plus detail webview panels.
-* Marketplace tree: Repo → Category → Resource items (three levels). Includes a Favorites section at the top when the user has starred resources. Supports tag-based filtering. Repo nodes have a right-click context menu with "Refresh Repository" to reload a single repo without refreshing everything.
+* Marketplace tree: Repo → Category → Resource items (three levels), with an optional fourth level (Repo → Category → SkillGroup → Resource) when `nestedSkills` is enabled. Includes a Favorites section at the top when the user has starred resources. Supports tag-based filtering. Repo nodes have a right-click context menu with "Refresh Repository" to reload a single repo without refreshing everything.
 * Local Collections tree: Collection → Category → Resource items (three levels). Configured via `aiSkillsManager.localCollections`.
 * Installed tree: Category → Installed resources (two levels). Shows update badges and modification indicators when upstream or local changes are detected.
 * Source files are under `vscode/src/`, with sub-folders `github/`, `services/`, `views/`, and `test/`.
@@ -55,6 +56,7 @@
 * The feature targets direct collaborators only (no fork-based workflow). Non-collaborators see a clear error message.
 * The `suggestAddition` command lets users right-click any resource (marketplace, local, or installed) and suggest adding it to a **different** target repository via a pull request. Unlike `proposeChanges` (which pushes edits back to the *source* repo), this copies a resource *to* a chosen repo. Available from all three tree context menus. The user picks a target from configured repositories, and the service creates a branch + PR. Skills-only repos (with `skillsPath`) only accept skill resources; non-skill categories are rejected with a warning. Content is fetched from GitHub for marketplace items, read from disk for local/installed items.
 * The `copyResourceName` command copies a resource name with a configurable prefix (`aiSkillsManager.copyNamePrefix`, default `/`) to the clipboard. Available from all three tree context menus (Marketplace, Local Collections, Installed). Useful for pasting skill invocations into AI chat.
+* The `installAllToWorkspace` and `installAllGlobally` commands install all resources under a category node or skill group node. Available from the Marketplace context menu on `category` and `skillGroup` context values.
 
 ## JetBrains / Rider Plugin (`rider/`)
 

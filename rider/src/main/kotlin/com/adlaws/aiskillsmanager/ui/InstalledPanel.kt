@@ -1176,7 +1176,8 @@ class InstalledPanel(private val project: Project) : Disposable {
                     if (data.hasUpdate) append(" ⬆", SimpleTextAttributes(SimpleTextAttributes.STYLE_BOLD, java.awt.Color(0x58, 0x9d, 0xf6)))
                     if (data.isModified) append(" ✎", SimpleTextAttributes(SimpleTextAttributes.STYLE_BOLD, java.awt.Color(0xd4, 0x9e, 0x3a)))
                     val modifiedIndicator = if (data.isModified) ", modified" else ""
-                    toolTipText = "${r.path} [${if (r.scope == InstallScope.GLOBAL) "Global" else "Workspace"}]$modifiedIndicator"
+                    val sourceInfo = if (!r.sourceRepo.isNullOrBlank()) " | Source: ${r.sourceRepo}" else " | Source: Local"
+                    toolTipText = "${r.path} [${if (r.scope == InstallScope.GLOBAL) "Global" else "Workspace"}]$modifiedIndicator$sourceInfo"
                     icon = null
                 }
                 is CategoryNodeData -> {

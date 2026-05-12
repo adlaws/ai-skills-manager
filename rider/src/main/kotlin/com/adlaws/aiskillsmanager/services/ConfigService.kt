@@ -71,13 +71,13 @@ class ConfigService(private val project: Project) {
             if (merge) {
                 for (repo in repos) {
                     settings.addRepository(repo.owner, repo.repo, repo.branch,
-                        repo.skillsPath, repo.singleSkill, repo.label)
+                        repo.skillsPath, repo.singleSkill, repo.nestedSkills, repo.label)
                 }
             } else {
                 settings.getState().repositories.clear()
                 for (repo in repos) {
                     settings.addRepository(repo.owner, repo.repo, repo.branch,
-                        repo.skillsPath, repo.singleSkill, repo.label)
+                        repo.skillsPath, repo.singleSkill, repo.nestedSkills, repo.label)
                 }
             }
         }
