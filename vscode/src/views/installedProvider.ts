@@ -24,14 +24,22 @@ export class InstalledCategoryTreeItem extends vscode.TreeItem {
         public readonly category: ResourceCategory,
         public readonly resources: InstalledResource[],
         public readonly updateCount: number = 0,
+        public readonly modifiedCount: number = 0,
     ) {
         super(
             CATEGORY_LABELS[category],
             vscode.TreeItemCollapsibleState.Expanded,
         );
         this.iconPath = new vscode.ThemeIcon(CATEGORY_ICONS[category]);
-        this.description = updateCount > 0
-            ? `${resources.length} (${updateCount} update${updateCount > 1 ? 's' : ''})`
+        const badges: string[] = [];
+        if (updateCount > 0) {
+            badges.push(`${updateCount} update${updateCount > 1 ? 's' : ''}`);
+        }
+        if (modifiedCount > 0) {
+            badges.push(`${modifiedCount} modified`);
+        }
+        this.description = badges.length > 0
+            ? `${resources.length} (${badges.join(', ')})`
             : `${resources.length}`;
         this.contextValue = 'installedCategory';
     }
@@ -72,10 +80,16 @@ export class InstalledResourceTreeItem extends vscode.TreeItem {
         }
         this.tooltip.supportThemeIcons = true;
 
+        // Tint icon: yellow/amber for modified (actionable), blue for update available
+        const iconColor = hasModifications
+            ? new vscode.ThemeColor('list.warningForeground')
+            : hasUpdate
+                ? new vscode.ThemeColor('notificationsInfoIcon.foreground')
+                : undefined;
         this.iconPath =
             resource.category === ResourceCategory.Skills
-                ? new vscode.ThemeIcon('folder')
-                : new vscode.ThemeIcon(CATEGORY_ICONS[resource.category]);
+                ? new vscode.ThemeIcon('folder', iconColor)
+                : new vscode.ThemeIcon(CATEGORY_ICONS[resource.category], iconColor);
 
         // Encode update + modification status in context value for menu visibility
         const baseContext = resource.scope === 'global'
@@ -253,7 +267,8 @@ export class InstalledTreeDataProvider
             (cat) => {
                 const resources = byCategory.get(cat)!;
                 const updateCount = resources.filter((r) => this.updatableNames.has(r.name)).length;
-                return new InstalledCategoryTreeItem(cat, resources, updateCount);
+                const modifiedCount = resources.filter((r) => this.modifiedNames.has(r.name)).length;
+                return new InstalledCategoryTreeItem(cat, resources, updateCount, modifiedCount);
             },
         );
     }

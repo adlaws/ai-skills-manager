@@ -1182,9 +1182,11 @@ class InstalledPanel(private val project: Project) : Disposable {
                 }
                 is CategoryNodeData -> {
                     val update = if (data.updateCount > 0) " — ${data.updateCount} update(s)" else ""
+                    val modified = if (data.modifiedCount > 0) " — ${data.modifiedCount} modified" else ""
                     append("${data.category.label}", SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
                     append(" (${data.count})", SimpleTextAttributes.GRAYED_ATTRIBUTES)
                     if (update.isNotEmpty()) append(update, SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, java.awt.Color(0x58, 0x9d, 0xf6)))
+                    if (modified.isNotEmpty()) append(modified, SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, java.awt.Color(0xd4, 0x9e, 0x3a)))
                     icon = null
                 }
             }
