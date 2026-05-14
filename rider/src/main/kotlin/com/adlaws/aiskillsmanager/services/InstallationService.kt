@@ -357,8 +357,25 @@ class InstallationService(
     private fun saveInstallMetadata(item: ResourceItem, targetDir: Path) {
         val resourcePath = if (item.isFolder) targetDir.resolve(item.name) else targetDir.resolve(item.name)
         val contentHash = computeContentHash(resourcePath)
+
+        // Always fetch the current SHA from GitHub to ensure we store the
+        // latest value. The marketplace item may carry a stale SHA from
+        // the initial load, which would cause the next update check to
+        // see a mismatch and offer the same update again in a loop.
+        val freshSha = if (item.repoOwner.isNotEmpty() && item.repoName.isNotEmpty()) {
+            try {
+                resourceClient.fetchResourceSha(
+                    item.repoOwner, item.repoName, item.repoBranch, item.path
+                ) ?: item.sha ?: ""
+            } catch (_: Exception) {
+                item.sha ?: ""
+            }
+        } else {
+            item.sha ?: ""
+        }
+
         val entry = InstallMetadata(
-            sha = item.sha ?: "",
+            sha = freshSha,
             sourceRepo = "${item.repoOwner}/${item.repoName}",
             installedAt = Instant.now().toString(),
             contentHash = contentHash

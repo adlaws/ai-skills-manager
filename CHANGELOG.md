@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.10
+
+### Bug Fixes
+
+* **Update loop for stale marketplace SHAs** — Fixed a regression where updating a resource would immediately show it as having another update available, creating an infinite update loop. The install service now always fetches the current upstream SHA when saving metadata, rather than relying on the potentially stale SHA cached in the marketplace item. Fix applied to both VS Code and Rider.
+
 ## 0.1.9
 
 ### New Features

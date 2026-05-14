@@ -105,21 +105,22 @@ export class InstallationService {
 
         // Persist install metadata (SHA + source repo) for update detection
         if (result && item.repo?.owner && item.repo?.repo) {
-            // If file.sha is missing (e.g. skills from Trees API repos), fetch it
-            if (!item.file.sha) {
-                try {
-                    const remoteSha = await this.client.fetchResourceSha(
-                        item.repo.owner,
-                        item.repo.repo,
-                        item.repo.branch,
-                        item.file.path,
-                    );
-                    if (remoteSha) {
-                        item.file.sha = remoteSha;
-                    }
-                } catch {
-                    // Non-critical — proceed without SHA
+            // Always fetch the current SHA from GitHub to ensure we store the
+            // latest value. The marketplace item may carry a stale SHA from
+            // the initial load, which would cause the next update check to
+            // see a mismatch and offer the same update again in a loop.
+            try {
+                const remoteSha = await this.client.fetchResourceSha(
+                    item.repo.owner,
+                    item.repo.repo,
+                    item.repo.branch,
+                    item.file.path,
+                );
+                if (remoteSha) {
+                    item.file.sha = remoteSha;
                 }
+            } catch {
+                // Non-critical — proceed with existing SHA if available
             }
             await this.saveInstallMetadata(item, scope, this._lastContentHash);
         }
